@@ -235,28 +235,44 @@ function playMelody(notes = TWINKLE, beatMs = 380) {
   }
   return totalMs;
 }
-function playClip(src) { try { const a = new Audio(src); a.play().catch(() => {}); } catch (e) {} }
-
-// Play a clip and resolve when it ENDS (so the face shakes for the clip's full
-// length). If the file is missing / can't play, fall back to `fallbackMs` so the
-// study still runs without audio.
-function speak(src, fallbackMs = 6500) {
+// Only ONE clip plays at a time; stopAudio() kills any lingering clip so nothing
+// overlaps or bleeds into the next screen (also called on every trial start).
+let _audioEl = null;
+function stopAudio() {
+  if (_audioEl) { try { _audioEl.pause(); } catch (e) {} _audioEl = null; }
+}
+// Fire-and-forget clip (e.g. the manipulation-check replay).
+function playClip(src) {
+  stopAudio();
+  try { const a = new Audio(src); _audioEl = a; a.play().catch(() => {}); } catch (e) {}
+}
+// Play a clip and resolve only when it ACTUALLY ENDS — so the face shakes for the
+// clip's full length and the trial never advances mid-sentence. Falls back only if
+// the audio is missing / blocked, so the study still runs without sound.
+function speak(src) {
   return new Promise((resolve) => {
+    stopAudio();
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
-    const timer = setTimeout(finish, fallbackMs);
     try {
       const a = new Audio(src);
-      a.addEventListener("ended", () => { clearTimeout(timer); finish(); });
-      a.play().catch(() => {});   // missing file -> 'ended' never fires -> fallback timer
-    } catch (e) {}
+      _audioEl = a;
+      a.addEventListener("ended", finish);
+      a.addEventListener("error", () => setTimeout(finish, 800));   // missing file
+      const p = a.play();
+      if (p && p.catch) p.catch(() => setTimeout(finish, 4000));    // autoplay blocked
+    } catch (e) { setTimeout(finish, 4000); }
+    setTimeout(finish, 60000); // hard safety so it can never hang forever
   });
 }
 
 /* ===================================================================
    5. PARTICIPANT STATE + COUNTERBALANCING
    =================================================================== */
-const jsPsych = initJsPsych({ on_finish: () => saveData() });
+const jsPsych = initJsPsych({
+  on_trial_start: () => stopAudio(),   // never let a clip bleed into the next trial
+  on_finish: () => saveData(),
+});
 
 const PARTICIPANT = {
   id: jsPsych.randomization.randomID(10),
@@ -405,9 +421,7 @@ function accentFamiliarization(t) {
       for (const [side, actor] of [["lc-left", t.actors[0]], ["lc-right", t.actors[1]]]) {
         anim(side, "lc-talking");
         setSpeech(caption(actor));
-        // shakes until the clip ends; fallback (no audio) scales with phrase length
-        const words = PHRASES[actor.phrase].text.split(/\s+/).length;
-        await speak(audioFor(actor.voice, actor.phrase), Math.min(16000, Math.max(5000, words * 230)));
+        await speak(audioFor(actor.voice, actor.phrase));   // waits for the clip to finish
         stop(side, "lc-talking"); setSpeech(""); await wait(500);
       }
       if (btn) btn.disabled = false;
