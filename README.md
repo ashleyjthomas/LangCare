@@ -22,35 +22,38 @@ python3 -m http.server 8000     # then open http://localhost:8000
 ```
 
 Camera capture needs `https://` or `localhost` (browsers block `getUserMedia`
-on `file://`). For data saving + the yoked stranger bank, also run the stub:
+on `file://`), so the python server (or GitHub Pages) is fine; opening the file
+directly is not. With a blank `CONFIG`, the study downloads each child's data as a
+JSON file locally — good for testing.
 
-```bash
-node server/server.js           # http://localhost:8080
-```
+## Data: Google Sheet (works on GitHub Pages)
+Data goes straight to a Google Sheet via a Google Apps Script web app — a
+client-side POST, so **no server is needed** and it works on GitHub Pages.
 
-and set `SAVE_URL` / `STRANGER_BANK` in the `CONFIG` block at the top of
-`experiment.js`. With both blank, the study still runs: it uses a placeholder
-stranger and downloads the data as a JSON file at the end.
+1. New Google Sheet → **Extensions → Apps Script** → paste `scripts/apps_script.gs` → Save.
+2. **Deploy → New deployment → Web app**, *Execute as: Me*, *Who has access: Anyone*.
+3. Copy the `…/exec` URL into `CONFIG.SHEETS_WEBHOOK` at the top of `experiment.js`.
+
+Each child writes **two rows** (one per condition: caregiver, stranger) in
+`CSV_COLS` order — the grain the pre-reg's `chose_shared ~ condition + (1|participant)`
+model wants. With `SHEETS_WEBHOOK` blank, it falls back to the local JSON download.
+(`server/server.js` is just an optional local dev alternative; you don't need it
+for the Sheet.)
 
 ## Sharing / hosting on GitHub Pages
-This is a static site, so GitHub Pages can host it for free over **HTTPS** — which
-the webcam capture *requires* (`getUserMedia` is blocked on plain `http://`).
+This is a static site, so GitHub Pages hosts it free over **HTTPS** — which the
+webcam capture *requires* (and which makes the Google-Sheet POST work). The camera
+works fine for parents on Pages.
 
 1. Push this folder to a GitHub repo (see below).
-2. Repo **Settings → Pages → Build and deployment → Source: "Deploy from a branch"**,
-   branch `main`, folder `/ (root)`. The study goes live at
-   `https://<user>.github.io/<repo>/` in a minute or two.
+2. Repo **Settings → Pages → Source: "Deploy from a branch"**, branch `main`,
+   folder `/ (root)`. Live at `https://<user>.github.io/<repo>/` in a minute or two.
 
-**Important — Pages is static-only.** `server/server.js` (data saving + the yoked
-stranger bank) cannot run on Pages. On Pages, with the default blank `CONFIG`:
-- each participant's data **downloads as a JSON file** on their own machine (no
-  central collection), and
-- the stranger is the bundled placeholder (`img/stranger.svg`), not a real yoked photo.
-
-For real central data collection + the photo bank, point `SAVE_URL` / `STRANGER_BANK`
-at a separate always-on host (e.g. a small Node service running `server/server.js` on
-Harvard-managed computing per IRB23-0780). Pages serves the front end; that host
-stores the data.
+**One limitation:** the yoked **stranger photo bank** needs a server, which Pages
+can't run, so on Pages every child sees the placeholder stranger (`img/stranger.svg`).
+Data collection (the Sheet) is unaffected. A real yoked bank would need a separate
+host (e.g. extend the Apps Script to store photos in Drive, or a small Node service
+on Harvard-managed computing per IRB23-0780).
 
 ## How it maps to the pre-reg
 | Pre-reg element | Here |

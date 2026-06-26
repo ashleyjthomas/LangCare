@@ -47,17 +47,34 @@
    0. CONFIG — edit these
    =================================================================== */
 const CONFIG = {
-  // Where to POST the finished data (your Harvard-computing endpoint).
-  // Leave "" to skip the network save and just download a JSON file.
-  SAVE_URL: "",
+  // Google Apps Script web-app URL that appends rows to a Google Sheet
+  // (same pattern as RELKIND/scripts/apps_script.gs). Deploy scripts/apps_script.gs,
+  // paste the /exec URL here. Works from GitHub Pages — no server needed.
+  // Leave "" to skip the upload and just download a JSON file locally.
+  SHEETS_WEBHOOK: "",
   // Endpoint that stores/serves the yoked "stranger" photo bank.
   // GET  STRANGER_BANK?exclude=<pid>  -> { photo: <dataURL or URL> }
   // POST STRANGER_BANK  { pid, photo } -> add a consented photo
   // Leave "" to use the bundled placeholder stranger (img/stranger.svg).
+  // NOTE: GitHub Pages can't run a bank server, so on Pages this stays "" and
+  // every child sees the placeholder stranger. A real yoked bank needs a host.
   STRANGER_BANK: "",
   SING_WORDS: false,            // false = hum the melody (avoids language leak)
   MAX_CHECK_REPEATS: 2,         // pre-reg: 2 repetitions before exclusion flag
 };
+
+// One row per CONDITION (2 rows per child) — the grain the brms model wants
+// (chose_shared ~ condition + (1|participant)). Shared by the Sheet + JSON export.
+const CSV_COLS = [
+  "participantId", "timestamp",
+  "ageMonths", "childSex", "langExposure", "consentPhotoReuse",
+  "cbCaregiverFirst", "cbFamOrder", "cbFrenchFirst",
+  "condition", "conditionPosition", "famOrder",
+  "nonsharedLang", "englishSide", "sharedColor", "nonsharedColor",
+  "langCheckCorrect", "langCheckAttempts", "adultCheckCorrect",
+  "dvChosenColor", "dvChosenRole", "choseShared",   // <- primary DV
+  "dvWhy", "numLangShared", "numLangNonshared",
+];
 
 /* ===================================================================
    1. STIMULUS CONTENT
@@ -607,23 +624,67 @@ function playClip(src) {
   try { const a = new Audio(src); a.play().catch(() => {}); } catch (e) {}
 }
 
-async function saveData() {
-  const payload = jsPsych.data.get().json();
-  if (CONFIG.SAVE_URL) {
-    try {
-      await fetch(CONFIG.SAVE_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pid: PARTICIPANT.id, data: JSON.parse(payload) }),
-      });
-      return;
-    } catch (e) { /* fall through to download */ }
-  }
-  // Fallback: download a JSON file locally.
+// Optional ?pid= override (e.g. if launched from a recruitment link).
+function urlParam(name) {
+  try { return new URLSearchParams(location.search).get(name) || ""; } catch (e) { return ""; }
+}
+
+// Flatten the jsPsych record into ONE tidy row per condition (CSV_COLS order).
+function buildRows() {
+  const all = jsPsych.data.get();
+  const props = all.values()[0] || {};
+  const pid = urlParam("pid") || PARTICIPANT.id;
+  const ts = new Date().toISOString();
+  const bin = (v) => (v === undefined || v === null ? "" : v ? 1 : 0);
+  return TRIALS.map((t, i) => {
+    const f = (name) => all.filter({ name, condition: t.condition });
+    const friend = f("dv_friend").last(1).values()[0] || {};
+    const why = f("dv_why").last(1).values()[0]?.response?.why ?? "";
+    const langChecks = f("lang_check").values();
+    const lastLang = langChecks[langChecks.length - 1] || {};
+    const adult = f("adult_check").last(1).values()[0] || {};
+    const numlang = f("dv_numlang").values();
+    const numFor = (role) => (numlang.find((v) => v.about_role === role) || {}).num_languages ?? "";
+    return {
+      participantId: pid, timestamp: ts,
+      ageMonths: props.age_months ?? "", childSex: props.child_sex ?? "",
+      langExposure: props.lang_exposure ?? "", consentPhotoReuse: bin(props.consent_photo_reuse),
+      cbCaregiverFirst: bin(props.cb_caregiver_first), cbFamOrder: props.cb_fam_order ?? "",
+      cbFrenchFirst: bin(props.cb_french_first),
+      condition: t.condition, conditionPosition: i + 1, famOrder: t.famOrder,
+      nonsharedLang: t.nonsharedLang, englishSide: t.englishLeft ? "left" : "right",
+      sharedColor: sharedOf(t).color.name, nonsharedColor: nonsharedOf(t).color.name,
+      langCheckCorrect: bin(lastLang.correct), langCheckAttempts: langChecks.length,
+      adultCheckCorrect: bin(adult.correct),
+      dvChosenColor: friend.chosen_color ?? "", dvChosenRole: friend.chosen_role ?? "",
+      choseShared: bin(friend.chose_shared),
+      dvWhy: why, numLangShared: numFor("shared"), numLangNonshared: numFor("nonshared"),
+    };
+  });
+}
+
+// Fire-and-forget POST to the Apps Script web app (same as RELKIND): text/plain +
+// no-cors dodges the CORS preflight; the script reads e.postData.contents.
+function postToSheets(row) {
+  try {
+    fetch(CONFIG.SHEETS_WEBHOOK, {
+      method: "POST", mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ headers: CSV_COLS, row }),
+    }).catch((e) => console.warn("[Sheets] post failed:", e));
+  } catch (e) { console.warn("[Sheets] post threw:", e); }
+}
+
+function saveData() {
+  const rows = buildRows();
+  if (CONFIG.SHEETS_WEBHOOK) { rows.forEach(postToSheets); return; }
+  // No webhook (dev / GitHub Pages demo): download the data so it isn't lost.
+  const payload = JSON.stringify(
+    { participantId: urlParam("pid") || PARTICIPANT.id, rows, raw: jsPsych.data.get().values() }, null, 2);
   const blob = new Blob([payload], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `langcare_${PARTICIPANT.id}.json`; a.click();
+  a.href = url; a.download = `langcare_${urlParam("pid") || PARTICIPANT.id}.json`; a.click();
   URL.revokeObjectURL(url);
 }
 
