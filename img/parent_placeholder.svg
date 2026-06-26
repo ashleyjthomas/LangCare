@@ -1,0 +1,7 @@
+<svg viewBox="0 0 170 170" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="85" cy="85" r="85" fill="#ffe9b3"/>
+  <circle cx="85" cy="68" r="34" fill="#d9a066"/>
+  <path d="M30 150 a55 50 0 0 1 110 0 z" fill="#c78a4a"/>
+  <text x="85" y="120" font-size="20" text-anchor="middle" fill="#7a5a2a"
+        font-family="Comic Sans MS, sans-serif">grown-up</text>
+</svg>
