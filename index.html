@@ -97,9 +97,17 @@
         background: #222; object-fit: cover; box-shadow: var(--shadow);
         transform: scaleX(-1); /* mirror live preview so it feels like a mirror */
       }
+      #lc-photo-choices { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+      #lc-preview {
+        width: 360px; height: 270px; border-radius: var(--radius);
+        object-fit: cover; box-shadow: var(--shadow);
+      }
+      label.jspsych-btn { display: inline-block; }
+      .jspsych-btn.secondary { background: #8aa0b5; box-shadow: 0 4px 0 #6b8299; }
+      .jspsych-btn.secondary:active { box-shadow: 0 2px 0 #6b8299; }
       .lc-hidden { display: none !important; }
     </style>
 </head>
 <body></body>
-<script src="experiment.js?v=9"></script>
+<script src="experiment.js?v=10"></script>
 </html>

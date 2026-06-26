@@ -61,7 +61,7 @@ const CONFIG = {
 // (choseNative ~ condition + (1|participant)). Shared by the Sheet + JSON export.
 const CSV_COLS = [
   "participantId", "timestamp",
-  "ageMonths", "childSex", "langExposure", "consentPhotoReuse",
+  "ageMonths", "childSex", "langExposure", "consentPhotoReuse", "closePersonRelation",
   "cbCaregiverFirst", "cbFamOrder", "cbAsianFirst",
   "condition", "conditionPosition", "famOrder",
   "pairKey", "nativeSide", "nativeFace", "foreignFace", "nativePhrase", "foreignPhrase",
@@ -110,14 +110,12 @@ const pickVoice = (arr) => jsPsych.randomization.sampleWithoutReplacement(arr, 1
 /* ===================================================================
    2. CUSTOM PLUGIN: webcam still-photo capture  (unchanged)
    =================================================================== */
-class PhotoCapturePlugin {
+class AdultPhotoPlugin {
   static info = {
-    name: "photo-capture",
+    name: "adult-photo",
     parameters: {
-      prompt:        { type: "HTML_STRING", default: "" },
-      take_label:    { type: "STRING", default: "📸 Take picture" },
-      retake_label:  { type: "STRING", default: "↺ Retake" },
-      accept_label:  { type: "STRING", default: "✓ Use this one" },
+      prompt:    { type: "HTML_STRING", default: "" },
+      narration: { type: "STRING", default: "" },   // narration clip played on load
     },
   };
   constructor(jsPsych) { this.jsPsych = jsPsych; }
@@ -126,48 +124,74 @@ class PhotoCapturePlugin {
     display_element.innerHTML = `
       <div id="lc-cam-wrap">
         <div class="lc-prompt">${trial.prompt}</div>
-        <video id="lc-video" autoplay playsinline></video>
+        <div id="lc-photo-choices">
+          <label for="lc-file" class="jspsych-btn">📁 Upload a photo</label>
+          <input id="lc-file" type="file" accept="image/*" class="lc-hidden">
+          <button id="lc-self" class="jspsych-btn secondary">📸 Take a picture of myself instead</button>
+        </div>
+        <video id="lc-video" class="lc-hidden" autoplay playsinline></video>
         <canvas id="lc-canvas" class="lc-hidden" width="640" height="480"></canvas>
-        <div id="lc-cam-controls">
-          <button id="lc-take" class="jspsych-btn">${trial.take_label}</button>
-          <button id="lc-retake" class="jspsych-btn lc-hidden">${trial.retake_label}</button>
-          <button id="lc-accept" class="jspsych-btn lc-hidden">${trial.accept_label}</button>
+        <img id="lc-preview" class="lc-hidden" alt="chosen photo">
+        <div id="lc-cam-controls" class="lc-hidden">
+          <button id="lc-snap"   class="jspsych-btn lc-hidden">📸 Take picture</button>
+          <button id="lc-retake" class="jspsych-btn secondary">↺ Start over</button>
+          <button id="lc-accept" class="jspsych-btn lc-hidden">✓ Use this photo</button>
         </div>
         <div id="lc-cam-err" style="color:var(--bad);font-size:16px;"></div>
       </div>`;
 
-    const video  = display_element.querySelector("#lc-video");
-    const canvas = display_element.querySelector("#lc-canvas");
-    const ctx    = canvas.getContext("2d");
-    const takeB   = display_element.querySelector("#lc-take");
-    const retakeB = display_element.querySelector("#lc-retake");
-    const acceptB = display_element.querySelector("#lc-accept");
-    const errEl   = display_element.querySelector("#lc-cam-err");
-    let stream = null, dataURL = null;
+    const $ = (s) => display_element.querySelector(s);
+    const choices = $("#lc-photo-choices"), fileIn = $("#lc-file"), selfB = $("#lc-self");
+    const video = $("#lc-video"), canvas = $("#lc-canvas"), ctx = canvas.getContext("2d");
+    const preview = $("#lc-preview"), controls = $("#lc-cam-controls");
+    const snapB = $("#lc-snap"), retakeB = $("#lc-retake"), acceptB = $("#lc-accept");
+    const errEl = $("#lc-cam-err");
+    let stream = null, dataURL = null, source = null;
+    const show = (el) => el.classList.remove("lc-hidden");
+    const hide = (el) => el.classList.add("lc-hidden");
+    const stopStream = () => { if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } };
 
-    navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false })
-      .then((s) => { stream = s; video.srcObject = s; })
-      .catch((e) => { errEl.textContent =
-        "We couldn't access your camera. Please allow camera access and reload. (" + e.name + ")"; });
+    if (trial.narration) playClip(trial.narration);
 
-    takeB.addEventListener("click", () => {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      dataURL = canvas.toDataURL("image/jpeg", 0.85);
-      video.classList.add("lc-hidden"); canvas.classList.remove("lc-hidden");
-      takeB.classList.add("lc-hidden");
-      retakeB.classList.remove("lc-hidden"); acceptB.classList.remove("lc-hidden");
+    const showPreview = (url) => {
+      dataURL = url; preview.src = url;
+      hide(choices); hide(video); hide(snapB);
+      show(preview); show(controls); show(acceptB);
+    };
+
+    // Upload path
+    fileIn.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => { source = "upload"; showPreview(reader.result); };
+      reader.readAsDataURL(file);
     });
+
+    // Self-capture path
+    selfB.addEventListener("click", () => {
+      hide(choices); show(video); show(controls); show(snapB);
+      navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false })
+        .then((s) => { stream = s; video.srcObject = s; })
+        .catch((e) => { errEl.textContent =
+          "We couldn't access your camera. Please allow it and try again, or upload a photo instead. (" + e.name + ")"; });
+    });
+    snapB.addEventListener("click", () => {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      source = "self"; stopStream();
+      showPreview(canvas.toDataURL("image/jpeg", 0.85));
+    });
+
     retakeB.addEventListener("click", () => {
-      dataURL = null;
-      canvas.classList.add("lc-hidden"); video.classList.remove("lc-hidden");
-      retakeB.classList.add("lc-hidden"); acceptB.classList.add("lc-hidden");
-      takeB.classList.remove("lc-hidden");
+      stopStream(); dataURL = null; source = null; errEl.textContent = "";
+      hide(preview); hide(video); hide(snapB); hide(controls);
+      show(choices); fileIn.value = "";
     });
     acceptB.addEventListener("click", () => {
-      if (stream) stream.getTracks().forEach((t) => t.stop());
+      if (!dataURL) return;
+      stopStream();
       PARTICIPANT.caregiverPhoto = dataURL;
       display_element.innerHTML = "";
-      this.jsPsych.finishTrial({ photo_captured: !!dataURL });
+      this.jsPsych.finishTrial({ photo_captured: !!dataURL, photo_source: source });
     });
   }
 }
@@ -246,6 +270,9 @@ function playClip(src) {
   stopAudio();
   try { const a = new Audio(src); _audioEl = a; a.play().catch(() => {}); } catch (e) {}
 }
+// Narrate an instruction/question screen (clips in audio/nar/, narrator voice).
+const narrate = (key) => playClip(`audio/nar/${key}.mp3`);
+const narrateUrl = (key) => `audio/nar/${key}.mp3`;   // for awaited sequencing via speak()
 // Play a clip and resolve only when it ACTUALLY ENDS — so the face shakes for the
 // clip's full length and the trial never advances mid-sentence. Falls back only if
 // the audio is missing / blocked, so the study still runs without sound.
@@ -348,8 +375,8 @@ timeline.push({
   preamble: `
     <h1>Welcome to our game! 🦆</h1>
     <p style="font-size:18px;">This study is for grown-ups and their 4–5 year old child to do together.
-    It takes about 10 minutes. In a moment we'll take a quick webcam photo of the
-    grown-up — it becomes a friendly character in the game.</p>
+    It takes about 10 minutes. In a moment we'll ask you to add a photo of someone
+    your child is very close to — they become a character in the game.</p>
     <p style="font-size:16px;color:var(--muted);">Parent/guardian: please fill this out, then hand the
     game to your child (you can stay nearby, but try to stay neutral about the characters).</p>`,
   html: `
@@ -364,7 +391,7 @@ timeline.push({
       <label><input type="checkbox" name="consent_participate" required>
         I have read the consent form and agree for my child and me to participate.</label><br><br>
       <label><input type="checkbox" name="consent_photo_reuse">
-        (Optional) You may reuse my webcam photo as the "stranger" character for other families.</label>
+        (Optional) You may reuse the photo I provide as the "stranger" character for other families.</label>
     </div>`,
   button_label: "Continue",
   data: { name: "intake" },
@@ -378,18 +405,35 @@ timeline.push({
   },
 });
 
-// ---- 7b. Webcam photo capture ---------------------------------------
+// ---- 7b. Add the close-person photo (upload or self-capture) ----------
 timeline.push({
-  type: PhotoCapturePlugin,
-  prompt: "Grown-up: smile! 📸 This photo becomes a character in the game.",
+  type: AdultPhotoPlugin,
+  prompt: `<b>Grown-up:</b> please add a picture of someone your child is very close to —
+           like a co-parent, a grandparent, or another special grown-up. This person
+           becomes a character in the game.<br>
+           <span style="font-size:15px;color:var(--muted)">If you don't have a photo handy,
+           you can take a picture of yourself instead.</span>`,
+  narration: narrateUrl("photo_instr"),
   data: { name: "photo_capture" },
+});
+
+// who the photo is to the child (write-in)
+timeline.push({
+  type: jsPsychSurveyText,
+  preamble: `<p style="font-size:18px;">Last setup question!</p>`,
+  questions: [{ prompt: "What is this person to your child? (for example: grandma, daddy, auntie, big brother)",
+                name: "relation", required: true }],
+  button_label: "Continue",
+  data: { name: "relation" },
+  on_finish: (d) => { jsPsych.data.addProperties({ close_person_relation: d.response.relation }); },
 });
 
 timeline.push({
   type: jsPsychHtmlButtonResponse,
-  stimulus: `<h2>Great — all set!</h2><p style="font-size:20px;">Now let's meet some characters.</p>`,
+  stimulus: `<h2>Great — all set!</h2><p style="font-size:20px;">Now let's meet some new people.</p>`,
   choices: ["Start the game"],
   on_start: () => { loadStrangerPhoto(); },
+  on_load: () => narrate("start_game"),
   on_finish: () => { contributePhotoToBank(jsPsych.data.get().values()
                       .find((v) => v.name === "intake")?.response?.consent_photo_reuse); },
   data: { name: "start_game" },
@@ -418,6 +462,7 @@ function accentFamiliarization(t) {
     data: { name: "accent_fam", condition: t.condition },
     on_load: async () => {
       const btn = document.querySelector(".jspsych-btn");
+      await speak(narrateUrl("fam"));                        // "Listen to each person talk."
       for (const [side, actor] of [["lc-left", t.actors[0]], ["lc-right", t.actors[1]]]) {
         anim(side, "lc-talking");
         setSpeech(caption(actor));
@@ -441,6 +486,7 @@ function adultStory(t) {
        <br>${who} and <img class="lc-inline" src="${faceImg(nt.id)}"> don't really know each other.`),
     choices: ["Watch them"],
     data: { name: "adult_story", condition: t.condition },
+    on_load: () => narrate("story"),
   };
 }
 
@@ -454,6 +500,7 @@ function adultSinging(t) {
     data: { name: "adult_affiliation", condition: t.condition },
     on_load: async () => {
       const btn = document.querySelector(".jspsych-btn");
+      await speak(narrateUrl("watch"));                     // "Now watch what happens!"
       for (const [actor, side] of [[t.actors[0], "lc-left"], [t.actors[1], "lc-right"]]) {
         if (actor.role === "foreign") {
           setSpeech("🎵 They sing together! 🎵");
@@ -484,7 +531,7 @@ function accentCheck(t) {
       choices: () => faceChoices(t),
       button_html: FACE_BTN_HTML,
       data: { name: "accent_check", condition: t.condition, correct_face: target.id },
-      on_load: () => { playClip(audioFor(target.voice, target.phrase)); },
+      on_load: async () => { await speak(narrateUrl("accent_check")); playClip(audioFor(target.voice, target.phrase)); },
       on_finish: (d) => {
         d.chosen_face = t.actors[d.response].id;
         d.correct = d.chosen_face === target.id;
@@ -508,6 +555,7 @@ function adultCheck(t) {
     choices: () => faceChoices(t),
     button_html: FACE_BTN_HTML,
     data: { name: "adult_check", condition: t.condition, correct_face: target.id },
+    on_load: () => narrate(t.condition === "caregiver" ? "adult_check_caregiver" : "adult_check_stranger"),
     on_finish: (d) => {
       d.chosen_face = t.actors[d.response].id;
       d.correct = d.chosen_face === target.id;
@@ -524,6 +572,7 @@ function dvBlock(t) {
       choices: () => faceChoices(t),
       button_html: FACE_BTN_HTML,
       data: { name: "dv_friend", condition: t.condition },
+      on_load: () => narrate("dv_friend"),
       on_finish: (d) => {
         const chosen = t.actors[d.response];
         d.chosen_face = chosen.id;
@@ -536,6 +585,7 @@ function dvBlock(t) {
       questions: [{ prompt: "Why is that? (Grown-up, please type what your child says.)",
                     rows: 2, columns: 50, name: "why" }],
       data: { name: "dv_why", condition: t.condition },
+      on_load: () => narrate("dv_why"),
     },
   ];
 }
@@ -548,6 +598,7 @@ function buildConditionTrial(t) {
                <p style="font-size:20px;">Watch carefully. 🎬</p>`,
     choices: ["Let's go"],
     data: { name: "trial_intro", condition: t.condition },
+    on_load: () => narrate(t.condition === "caregiver" ? "intro_caregiver" : "intro_stranger"),
   };
   const accentPair = [accentFamiliarization(t), accentCheck(t)];
   const adultPair  = [adultStory(t), adultSinging(t), adultCheck(t)];
@@ -574,6 +625,7 @@ timeline.push({
       speaks with their own accent, or one their caregiver is friends with.</p>`,
   choices: ["Finish"],
   data: { name: "debrief" },
+  on_load: () => narrate("debrief"),
 });
 
 /* ===================================================================
@@ -601,6 +653,7 @@ function buildRows() {
       participantId: pid, timestamp: ts,
       ageMonths: props.age_months ?? "", childSex: props.child_sex ?? "",
       langExposure: props.lang_exposure ?? "", consentPhotoReuse: bin(props.consent_photo_reuse),
+      closePersonRelation: props.close_person_relation ?? "",
       cbCaregiverFirst: bin(props.cb_caregiver_first), cbFamOrder: props.cb_fam_order ?? "",
       cbAsianFirst: bin(props.cb_asian_first),
       condition: t.condition, conditionPosition: i + 1, famOrder: t.famOrder,
