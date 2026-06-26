@@ -306,7 +306,7 @@ const CLIP_GAINS = {
   "adult_check_stranger.mp3":1.163,"dv_friend.mp3":1.429,"dv_why.mp3":1.672,
   "debrief.mp3":0.969,"soundcheck.mp3":1.271,
   "story_friend.mp3":1.257,"story_notfriend.mp3":1.094,
-  "song_friend.mp3":1.396,"song_notfriend.mp3":1.194,
+  "song_friend.mp3":1.000,"song_notfriend.mp3":1.362,
 };
 // Route an <audio> element through a GainNode so it plays at the normalized level.
 function applyGain(audioEl, src) {
@@ -580,12 +580,12 @@ function affiliationSong(t, actor) {
       const btn = document.querySelector(".jspsych-btn");
       await speak(narrateUrl(friend ? "song_friend" : "song_notfriend"));
       if (friend) {
-        setSpeech("🎵 They sing it together! 🎵");
+        setSpeech("🎵 They love singing together! 🎵");
         anim("lc-solo", "lc-singing"); anim("lc-adult-node", "lc-singing"); // both dance
         await wait(playMelody(TWINKLE));
         stop("lc-solo", "lc-singing"); stop("lc-adult-node", "lc-singing");
       } else {
-        setSpeech("🎵 A different song… 🎵");
+        setSpeech("They don't sing together.");
         anim("lc-solo", "lc-singing");                       // only the person sings; grown-up still
         await wait(playMelody(MARY));
         stop("lc-solo", "lc-singing");
