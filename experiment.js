@@ -131,6 +131,7 @@ class AdultPhotoPlugin {
         </div>
         <video id="lc-video" class="lc-hidden" autoplay playsinline></video>
         <canvas id="lc-canvas" class="lc-hidden" width="640" height="480"></canvas>
+        <div id="lc-crop-hint" class="lc-prompt lc-hidden">Drag the box to crop to just the person's face.</div>
         <img id="lc-preview" class="lc-hidden" alt="chosen photo">
         <div id="lc-cam-controls" class="lc-hidden">
           <button id="lc-snap"   class="jspsych-btn lc-hidden">📸 Take picture</button>
@@ -145,18 +146,26 @@ class AdultPhotoPlugin {
     const video = $("#lc-video"), canvas = $("#lc-canvas"), ctx = canvas.getContext("2d");
     const preview = $("#lc-preview"), controls = $("#lc-cam-controls");
     const snapB = $("#lc-snap"), retakeB = $("#lc-retake"), acceptB = $("#lc-accept");
-    const errEl = $("#lc-cam-err");
-    let stream = null, dataURL = null, source = null;
+    const errEl = $("#lc-cam-err"), cropHint = $("#lc-crop-hint");
+    let stream = null, source = null, cropper = null;
     const show = (el) => el.classList.remove("lc-hidden");
     const hide = (el) => el.classList.add("lc-hidden");
     const stopStream = () => { if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } };
 
     if (trial.narration) playClip(trial.narration);
 
+    // Show the chosen image in a square cropper so the parent can frame the face.
     const showPreview = (url) => {
-      dataURL = url; preview.src = url;
       hide(choices); hide(video); hide(snapB);
-      show(preview); show(controls); show(acceptB);
+      show(cropHint); show(preview); show(controls); show(acceptB);
+      preview.onload = () => {
+        if (cropper) cropper.destroy();
+        cropper = new Cropper(preview, {
+          aspectRatio: 1, viewMode: 1, autoCropArea: 0.85,
+          background: false, dragMode: "move", guides: false,
+        });
+      };
+      preview.src = url;
     };
 
     // Upload path
@@ -182,16 +191,20 @@ class AdultPhotoPlugin {
     });
 
     retakeB.addEventListener("click", () => {
-      stopStream(); dataURL = null; source = null; errEl.textContent = "";
-      hide(preview); hide(video); hide(snapB); hide(controls);
+      if (cropper) { cropper.destroy(); cropper = null; }
+      stopStream(); source = null; errEl.textContent = "";
+      hide(cropHint); hide(preview); hide(video); hide(snapB); hide(controls);
       show(choices); fileIn.value = "";
     });
     acceptB.addEventListener("click", () => {
-      if (!dataURL) return;
-      stopStream();
-      PARTICIPANT.caregiverPhoto = dataURL;
+      if (!cropper) return;
+      const canvas = cropper.getCroppedCanvas({ width: 512, height: 512, imageSmoothingQuality: "high" });
+      const out = canvas ? canvas.toDataURL("image/jpeg", 0.88) : null;
+      cropper.destroy(); cropper = null; stopStream();
+      if (!out) return;
+      PARTICIPANT.caregiverPhoto = out;
       display_element.innerHTML = "";
-      this.jsPsych.finishTrial({ photo_captured: !!dataURL, photo_source: source });
+      this.jsPsych.finishTrial({ photo_captured: true, photo_source: source });
     });
   }
 }
