@@ -1,111 +1,96 @@
 /* =============================================================
    LANG-CARE (asynchronous adaptation)
-   "Can Caregiver Affiliation Influence Language Bias?"
+   "Can Caregiver Affiliation Influence ACCENT Bias?"
 
    Adapts the synchronous LANG-CARE Study 2 (4–5 yo monolingual
    English children; within-subjects caregiver vs. stranger) into a
    self-paced, self-hosted jsPsych study with NO live experimenter.
 
-   WHAT'S THE SAME AS THE PRE-REG
-     - Within-subjects: a CAREGIVER trial and a STRANGER trial.
-     - Each trial: two speakers, one speaks the child's language
-       (English = shared) and one a non-shared language (French or
-       Hindi). An adult in the middle AFFILIATES with the non-shared
-       speaker and rejects the shared speaker.
-     - Manipulation checks (language + adult-liking) and the DV:
-       "Whom would you like as your friend?" + "Why?" + a guess at
-       how many languages each speaker knows.
-     - Counterbalancing: condition order, familiarization order
-       (language-first vs adult-first, constant within child), which
-       non-shared language, the face/"color" pair, and the side of
-       the English speaker. Constants: left actor always acts first;
-       the adult always affiliates with the non-shared speaker.
+   THIS VERSION
+     - Speakers are REAL human faces from the Chicago Face Database
+       (women only, for now): two matched pairs —
+         Asian:  AF-218 / AF-235
+         Latina: LF-203 / LF-229
+       Each trial uses one matched pair (faces matched on the CFD
+       norming dimensions, so the only difference is the accent).
+     - The manipulation is ACCENT, not language: both speakers say the
+       SAME English sentence; one in an American accent ("native"), one
+       in a different accent ("foreign"). Accent audio is generated with
+       ElevenLabs and dropped into audio/ (see audio/SCRIPT.md). Until
+       then, CONFIG.SHOW_ACCENT_LABEL prints the accent as a caption so
+       the flow is testable.
+     - The adult in the middle (parent's webcam photo = caregiver, or a
+       yoked bank photo = stranger) AFFILIATES with the foreign-accent
+       speaker (they "know the same song" and sing together) and rejects
+       the native-accent speaker.
+     - Manipulation checks (accent + adult-liking) and the DV
+       ("Whom would you like as your friend?" + "Why?"). Children answer
+       by tapping the FACE itself (image buttons) — no color labels.
 
-   WHAT'S DIFFERENT (async adaptation — flagged for Ashley)
-     1. ASYNC, no experimenter. Parent reads instructions; child taps.
-     2. The "adult in the middle" is the PARENT'S OWN WEBCAM PHOTO
-        (caregiver trial) or another consenting parent's photo pulled
-        from a yoked bank (stranger trial). See PhotoCapturePlugin +
-        STRANGER_BANK below.
-     3. Speakers are placeholder ANIMATED FACES (inline SVG) for now,
-        not puppets and not real video. Swap in real stimuli later by
-        replacing buildActor()/the familiarization screens. NOTE: real
-        human faces reintroduce race/age/gender cues the original
-        controlled for with puppets — design decision, see README.
-     4. Affiliation cue = SINGING TOGETHER (Twinkle Twinkle melody,
-        synthesized via Web Audio). To avoid leaking language through
-        sung *words*, the default melody is HUMMED (la-la / tones), so
-        "they know the same song" does not also reveal a shared
-        language. Set SING_WORDS = true to use lyric audio instead.
+   COUNTERBALANCING (sampled per child)
+     - condition order (caregiver vs stranger first)
+     - familiarization order (accent-first vs adult-first; constant within child)
+     - which face pair goes with which condition (Asian vs Latina first)
+     - which face in a pair is the foreign-accent speaker
+     - side of the native-accent speaker
+   CONSTANTS: left face acts first; the adult always affiliates the
+   foreign-accent speaker.
 
-   Audio is OPTIONAL: the study runs end-to-end with on-screen text +
-   the synthesized melody. Drop real recordings into audio/ and set the
-   paths in LANGUAGES / AUDIO to add narration on top (see audio/SCRIPT.md).
+   CFD NOTE: the face images live in img/faces/ and are git-ignored until
+   the Chicago Face Database license is confirmed to allow public hosting.
    ============================================================= */
 
 /* ===================================================================
-   0. CONFIG — edit these
+   0. CONFIG
    =================================================================== */
 const CONFIG = {
-  // Google Apps Script web-app URL that appends rows to a Google Sheet
-  // (same pattern as RELKIND/scripts/apps_script.gs). Deploy scripts/apps_script.gs,
-  // paste the /exec URL here. Works from GitHub Pages — no server needed.
-  // Leave "" to skip the upload and just download a JSON file locally.
+  // Google Apps Script web-app URL (deploy scripts/apps_script.gs, paste /exec here).
+  // Works from GitHub Pages — no server. Leave "" to download a JSON file instead.
   SHEETS_WEBHOOK: "",
-  // Endpoint that stores/serves the yoked "stranger" photo bank.
-  // GET  STRANGER_BANK?exclude=<pid>  -> { photo: <dataURL or URL> }
-  // POST STRANGER_BANK  { pid, photo } -> add a consented photo
-  // Leave "" to use the bundled placeholder stranger (img/stranger.svg).
-  // NOTE: GitHub Pages can't run a bank server, so on Pages this stays "" and
-  // every child sees the placeholder stranger. A real yoked bank needs a host.
+  // Yoked stranger photo bank endpoint (see loadStrangerPhoto). Leave "" to use
+  // the bundled placeholder (GitHub Pages can't run a bank server).
   STRANGER_BANK: "",
-  SING_WORDS: false,            // false = hum the melody (avoids language leak)
+  // While true, the accent is shown as a caption so the study is testable
+  // WITHOUT audio. Set false once real ElevenLabs accent audio is in audio/.
+  SHOW_ACCENT_LABEL: true,
+  SING_WORDS: false,            // false = hum the melody (affiliation cue)
   MAX_CHECK_REPEATS: 2,         // pre-reg: 2 repetitions before exclusion flag
 };
 
 // One row per CONDITION (2 rows per child) — the grain the brms model wants
-// (chose_shared ~ condition + (1|participant)). Shared by the Sheet + JSON export.
+// (choseNative ~ condition + (1|participant)). Shared by the Sheet + JSON export.
 const CSV_COLS = [
   "participantId", "timestamp",
   "ageMonths", "childSex", "langExposure", "consentPhotoReuse",
-  "cbCaregiverFirst", "cbFamOrder", "cbFrenchFirst",
+  "cbCaregiverFirst", "cbFamOrder", "cbAsianFirst",
   "condition", "conditionPosition", "famOrder",
-  "nonsharedLang", "englishSide", "sharedColor", "nonsharedColor",
-  "langCheckCorrect", "langCheckAttempts", "adultCheckCorrect",
-  "dvChosenColor", "dvChosenRole", "choseShared",   // <- primary DV
-  "dvWhy", "numLangShared", "numLangNonshared",
+  "pairKey", "nativeSide", "nativeFace", "foreignFace",
+  "accentCheckCorrect", "accentCheckAttempts", "adultCheckCorrect",
+  "dvChosenFace", "dvChosenRole", "choseNative",   // <- primary DV
+  "dvWhy",
 ];
 
 /* ===================================================================
-   1. STIMULUS CONTENT
+   1. STIMULUS CONTENT — faces + accents
    =================================================================== */
-// Languages. `phrase` doubles as the on-screen "speech" and the
-// manipulation-check text until real audio is recorded.
-const LANGUAGES = {
-  english: { label: "English", phrase: "Hello! Look at the little duck!",      audio: "audio/english.mp3" },
-  french:  { label: "French",  phrase: "Bonjour ! Regarde le petit canard !",  audio: "audio/french.mp3"  },
-  hindi:   { label: "Hindi",   phrase: "Namaste! Dekho, chhoti si batakh!",    audio: "audio/hindi.mp3"   },
+// Matched women pairs (Chicago Face Database). Each trial uses ONE pair.
+const FACE_PAIRS = [
+  { key: "asian",  faces: ["AF-218", "AF-235"] },
+  { key: "latina", faces: ["LF-203", "LF-229"] },
+];
+const faceImg = (id) => `img/faces/${id}.jpg`;
+
+// Both speakers say the SAME English sentence; the difference is the ACCENT.
+// `phrase` is the on-screen caption; `audio` is the ElevenLabs clip.
+const ACCENTS = {
+  native:  { key: "native",  label: "American accent",
+             phrase: "Hi! Look at the little duck!", audio: "audio/native.mp3" },
+  foreign: { key: "foreign", label: "a different accent",
+             phrase: "Hi! Look at the little duck!", audio: "audio/foreign.mp3" },
 };
 
-// "Color" labels (kids refer to actors by color, as in the original
-// "Mr. [color]"). Each face wears a colored shirt.
-const COLOR_POOL = [
-  { key: "blue",   name: "blue",   shirt: "#4a90d9" },
-  { key: "green",  name: "green",  shirt: "#56ab2f" },
-  { key: "purple", name: "purple", shirt: "#9b59b6" },
-  { key: "orange", name: "orange", shirt: "#e67e22" },
-];
-// A little surface variety so the two faces in a pair look distinct.
-const SKINS = ["#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#ffdbac"];
-const HAIRS = ["#2b2b2b", "#6b4226", "#d4a017", "#8b3a3a"];
-
 /* ===================================================================
-   2. CUSTOM PLUGIN: webcam still-photo capture
-   ------------------------------------------------------------------
-   jsPsych has no built-in "take a photo" plugin, so this is a small
-   one: live mirrored preview -> Take picture -> Retake / Use this.
-   Stores the captured frame as a JPEG dataURL in trial data AND in
-   the global PARTICIPANT.caregiverPhoto for compositing into scenes.
+   2. CUSTOM PLUGIN: webcam still-photo capture  (unchanged)
    =================================================================== */
 class PhotoCapturePlugin {
   static info = {
@@ -140,8 +125,7 @@ class PhotoCapturePlugin {
     const retakeB = display_element.querySelector("#lc-retake");
     const acceptB = display_element.querySelector("#lc-accept");
     const errEl   = display_element.querySelector("#lc-cam-err");
-    let stream = null;
-    let dataURL = null;
+    let stream = null, dataURL = null;
 
     navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false })
       .then((s) => { stream = s; video.srcObject = s; })
@@ -149,25 +133,18 @@ class PhotoCapturePlugin {
         "We couldn't access your camera. Please allow camera access and reload. (" + e.name + ")"; });
 
     takeB.addEventListener("click", () => {
-      // Draw the current frame un-mirrored so the saved photo is true orientation.
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       dataURL = canvas.toDataURL("image/jpeg", 0.85);
-      video.classList.add("lc-hidden");
-      canvas.classList.remove("lc-hidden");
+      video.classList.add("lc-hidden"); canvas.classList.remove("lc-hidden");
       takeB.classList.add("lc-hidden");
-      retakeB.classList.remove("lc-hidden");
-      acceptB.classList.remove("lc-hidden");
+      retakeB.classList.remove("lc-hidden"); acceptB.classList.remove("lc-hidden");
     });
-
     retakeB.addEventListener("click", () => {
       dataURL = null;
-      canvas.classList.add("lc-hidden");
-      video.classList.remove("lc-hidden");
-      retakeB.classList.add("lc-hidden");
-      acceptB.classList.add("lc-hidden");
+      canvas.classList.add("lc-hidden"); video.classList.remove("lc-hidden");
+      retakeB.classList.add("lc-hidden"); acceptB.classList.add("lc-hidden");
       takeB.classList.remove("lc-hidden");
     });
-
     acceptB.addEventListener("click", () => {
       if (stream) stream.getTracks().forEach((t) => t.stop());
       PARTICIPANT.caregiverPhoto = dataURL;
@@ -178,58 +155,42 @@ class PhotoCapturePlugin {
 }
 
 /* ===================================================================
-   3. FACE + SCENE RENDERING (placeholder animated actors)
+   3. SCENE RENDERING — real face photos
    =================================================================== */
-// One friendly cartoon face. `id` lets us target it to animate.
-function buildActor(color, skin, hair, id) {
-  return `
-  <div class="lc-actor">
-    <div id="${id}">
-      <svg viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg">
-        <rect x="55" y="150" width="90" height="90" rx="22" fill="${color.shirt}"/>
-        <circle cx="100" cy="95" r="62" fill="${skin}"/>
-        <path d="M40 90 a60 60 0 0 1 120 0 q-60 -55 -120 0 z" fill="${hair}"/>
-        <circle cx="78" cy="92" r="8" fill="#2b2b2b"/>
-        <circle cx="122" cy="92" r="8" fill="#2b2b2b"/>
-        <path d="M78 120 q22 20 44 0" stroke="#2b2b2b" stroke-width="5"
-              fill="none" stroke-linecap="round"/>
-      </svg>
-    </div>
-    <div class="lc-label">the ${color.name} one</div>
-  </div>`;
-}
-
-// The adult-in-the-middle = the parent/stranger photo (dataURL or URL).
-function buildAdult(photo, id) {
-  const src = photo || "img/parent_placeholder.svg";
-  return `<div class="lc-adult"><div id="${id}">
-            <img src="${src}" alt="adult"/>
+// A speaker = a face photo. `id` lets us target it to animate.
+function buildActor(actor, id) {
+  return `<div class="lc-actor"><div id="${id}">
+            <img class="lc-face" src="${faceImg(actor.id)}" alt="speaker"/>
           </div></div>`;
 }
-
-// Assemble the full three-actor scene. `actors` is [leftActor, rightActor],
-// each = { color, skin, hair, role: 'shared'|'nonshared' }.
+// The adult-in-the-middle = parent/stranger photo (dataURL or URL).
+function buildAdult(photo, id) {
+  const src = photo || "img/parent_placeholder.svg";
+  return `<div class="lc-adult"><div id="${id}"><img src="${src}" alt="adult"/></div></div>`;
+}
+// Full three-actor scene. `actors` = [leftActor, rightActor], each {id, role}.
 function buildScene(actors, adultPhoto, promptHTML) {
-  const left = buildActor(actors[0].color, actors[0].skin, actors[0].hair, "lc-left");
-  const right = buildActor(actors[1].color, actors[1].skin, actors[1].hair, "lc-right");
   return `
     ${promptHTML ? `<div class="lc-prompt">${promptHTML}</div>` : ""}
     <div class="lc-scene">
-      ${left}
+      ${buildActor(actors[0], "lc-left")}
       ${buildAdult(adultPhoto, "lc-adult-node")}
-      ${right}
+      ${buildActor(actors[1], "lc-right")}
     </div>
     <div class="lc-speech" id="lc-speech"></div>`;
 }
+// Two face-image response buttons (child taps the face). Index = actor order.
+function faceChoices(t) { return t.actors.map((a) => `<img class="lc-facebtn-img" src="${faceImg(a.id)}">`); }
+const FACE_BTN_HTML = '<button class="jspsych-btn lc-facebtn">%choice%</button>';
 
-// animation helpers (operate on ids inside the current display)
+// animation helpers
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-function setSpeech(t) { const e = document.querySelector("#lc-speech"); if (e) e.textContent = t || ""; }
+function setSpeech(t) { const e = document.querySelector("#lc-speech"); if (e) e.innerHTML = t || ""; }
 function anim(id, cls) { const e = document.querySelector("#" + id); if (e) e.classList.add(cls); }
 function stop(id, cls) { const e = document.querySelector("#" + id); if (e) e.classList.remove(cls); }
 
 /* ===================================================================
-   4. AUDIO — synthesized Twinkle Twinkle melody (the affiliation cue)
+   4. AUDIO — synthesized Twinkle Twinkle melody (affiliation cue)  (unchanged)
    =================================================================== */
 let _audioCtx = null;
 function audioCtx() {
@@ -237,99 +198,65 @@ function audioCtx() {
   if (_audioCtx.state === "suspended") _audioCtx.resume();
   return _audioCtx;
 }
-// First phrase of Twinkle Twinkle: C C G G A A G  (note, beats)
 const TWINKLE = [
-  [261.63, 1], [261.63, 1], [392.0, 1], [392.0, 1],
-  [440.0, 1], [440.0, 1], [392.0, 2],
+  [261.63, 1], [261.63, 1], [392.0, 1], [392.0, 1], [440.0, 1], [440.0, 1], [392.0, 2],
 ];
 function playMelody(notes = TWINKLE, beatMs = 380) {
   const ctx = audioCtx();
-  let t = ctx.currentTime + 0.05;
-  let totalMs = 50;
+  let t = ctx.currentTime + 0.05, totalMs = 50;
   for (const [freq, beats] of notes) {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "triangle";            // soft, voice-like for "humming"
-    osc.frequency.value = freq;
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = "triangle"; osc.frequency.value = freq;
     const dur = (beats * beatMs) / 1000;
     gain.gain.setValueAtTime(0.0001, t);
     gain.gain.exponentialRampToValueAtTime(0.25, t + 0.04);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + dur - 0.04);
     osc.connect(gain).connect(ctx.destination);
     osc.start(t); osc.stop(t + dur);
-    t += dur;
-    totalMs += beats * beatMs;
+    t += dur; totalMs += beats * beatMs;
   }
   return totalMs;
 }
+function playClip(src) { try { const a = new Audio(src); a.play().catch(() => {}); } catch (e) {} }
 
 /* ===================================================================
    5. PARTICIPANT STATE + COUNTERBALANCING
    =================================================================== */
-const jsPsych = initJsPsych({
-  on_finish: () => saveData(),
-});
+const jsPsych = initJsPsych({ on_finish: () => saveData() });
 
 const PARTICIPANT = {
   id: jsPsych.randomization.randomID(10),
-  caregiverPhoto: null,    // filled by PhotoCapturePlugin
-  strangerPhoto: null,     // filled from the bank (or placeholder)
+  caregiverPhoto: null,
+  strangerPhoto: null,
 };
 
-// --- participant-level counterbalancing -------------------------------
-const cb_caregiver_first = jsPsych.randomization.sampleBernoulli(0.5);         // condition order
-const cb_fam_order = jsPsych.randomization.sampleWithoutReplacement(   // constant within child
-  ["language", "adult"], 1)[0];
+const cb_caregiver_first = jsPsych.randomization.sampleBernoulli(0.5);
+const cb_fam_order = jsPsych.randomization.sampleWithoutReplacement(["accent", "adult"], 1)[0];
+const cb_asian_first = jsPsych.randomization.sampleBernoulli(0.5);
 
-// Two trials differ in non-shared language + color pair (counterbalanced
-// which language goes with which condition).
-const cb_french_first = jsPsych.randomization.sampleBernoulli(0.5);
-const nonsharedLangs = cb_french_first ? ["french", "hindi"] : ["hindi", "french"];
-
-// Distinct color pairs for the two trials.
-const shuffledColors = jsPsych.randomization.shuffle(COLOR_POOL);
-const colorPairs = [
-  [shuffledColors[0], shuffledColors[1]],
-  [shuffledColors[2], shuffledColors[3]],
-];
-
-// Build the two condition configs in presentation order.
 const conditionOrder = cb_caregiver_first ? ["caregiver", "stranger"] : ["stranger", "caregiver"];
+const pairOrder = cb_asian_first ? ["asian", "latina"] : ["latina", "asian"];
+
 const TRIALS = conditionOrder.map((condition, i) => {
-  const englishLeft = jsPsych.randomization.sampleBernoulli(0.5); // side of English speaker
-  const pair = colorPairs[i];
-  const skin = jsPsych.randomization.sampleWithoutReplacement(SKINS, 2);
-  const hair = jsPsych.randomization.sampleWithoutReplacement(HAIRS, 2);
-  // actors[0] = LEFT (always acts first per the constants)
-  const sharedActor    = { role: "shared",    lang: "english" };
-  const nonsharedActor = { role: "nonshared", lang: nonsharedLangs[i] };
-  const leftRole  = englishLeft ? sharedActor : nonsharedActor;
-  const rightRole = englishLeft ? nonsharedActor : sharedActor;
-  return {
-    condition,
-    famOrder: cb_fam_order,
-    nonsharedLang: nonsharedLangs[i],
-    englishLeft,
-    actors: [
-      { ...leftRole,  color: pair[0], skin: skin[0], hair: hair[0] },
-      { ...rightRole, color: pair[1], skin: skin[1], hair: hair[1] },
-    ],
-  };
+  const pairKey = pairOrder[i];
+  const pairFaces = FACE_PAIRS.find((p) => p.key === pairKey).faces;
+  const shuffled = jsPsych.randomization.shuffle(pairFaces);  // which face gets which accent
+  const nativeFace  = { id: shuffled[0], role: "native",  accent: "native"  };
+  const foreignFace = { id: shuffled[1], role: "foreign", accent: "foreign" };
+  const nativeLeft = jsPsych.randomization.sampleBernoulli(0.5); // side of native speaker
+  const left  = nativeLeft ? nativeFace : foreignFace;
+  const right = nativeLeft ? foreignFace : nativeFace;
+  return { condition, famOrder: cb_fam_order, pairKey, nativeLeft, actors: [left, right] };
 });
 
-jsPsych.data.addProperties({
-  pid: PARTICIPANT.id,
-  cb_caregiver_first, cb_fam_order, cb_french_first,
-});
+jsPsych.data.addProperties({ pid: PARTICIPANT.id, cb_caregiver_first, cb_fam_order, cb_asian_first });
 
-// convenience: pull the shared / non-shared actor from a trial config
-const sharedOf    = (t) => t.actors.find((a) => a.role === "shared");
-const nonsharedOf = (t) => t.actors.find((a) => a.role === "nonshared");
+const nativeOf  = (t) => t.actors.find((a) => a.role === "native");
+const foreignOf = (t) => t.actors.find((a) => a.role === "foreign");
 const adultPhotoOf = (t) => (t.condition === "caregiver" ? PARTICIPANT.caregiverPhoto : PARTICIPANT.strangerPhoto);
-const colorWord = (a) => a.color.name;
 
 /* ===================================================================
-   6. STRANGER BANK (yoked, consented photos)
+   6. STRANGER BANK (yoked, consented photos)  (unchanged)
    =================================================================== */
 async function loadStrangerPhoto() {
   if (CONFIG.STRANGER_BANK) {
@@ -337,27 +264,26 @@ async function loadStrangerPhoto() {
       const r = await fetch(`${CONFIG.STRANGER_BANK}?exclude=${PARTICIPANT.id}`);
       const j = await r.json();
       if (j && j.photo) { PARTICIPANT.strangerPhoto = j.photo; return; }
-    } catch (e) { /* fall through to placeholder */ }
+    } catch (e) { /* fall through */ }
   }
-  PARTICIPANT.strangerPhoto = "img/stranger.svg"; // bundled placeholder
+  PARTICIPANT.strangerPhoto = "img/stranger.svg";
 }
 async function contributePhotoToBank(consented) {
   if (!consented || !CONFIG.STRANGER_BANK || !PARTICIPANT.caregiverPhoto) return;
   try {
     await fetch(CONFIG.STRANGER_BANK, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pid: PARTICIPANT.id, photo: PARTICIPANT.caregiverPhoto }),
     });
   } catch (e) { /* non-fatal */ }
 }
 
 /* ===================================================================
-   7. TIMELINE PIECES
+   7. TIMELINE
    =================================================================== */
 const timeline = [];
 
-// ---- 7a. Welcome + consent + demographics (parent) -------------------
+// ---- 7a. Welcome + consent + demographics ----------------------------
 timeline.push({
   type: jsPsychSurveyHtmlForm,
   preamble: `
@@ -374,7 +300,7 @@ timeline.push({
         <select name="child_sex" required>
           <option value="">—</option><option>Female</option><option>Male</option><option>Other / prefer not to say</option>
         </select></label><br><br>
-      <label>Is your child regularly exposed to languages other than English (school, neighbors, family)?<br>
+      <label>Is your child regularly exposed to languages or accents other than American English (school, neighbors, family)?<br>
         <textarea name="lang_exposure" rows="2" style="width:100%;"></textarea></label><br><br>
       <label><input type="checkbox" name="consent_participate" required>
         I have read the consent form and agree for my child and me to participate.</label><br><br>
@@ -400,18 +326,16 @@ timeline.push({
   data: { name: "photo_capture" },
 });
 
-// kick off stranger-photo load right after we have the camera permission flow
 timeline.push({
   type: jsPsychHtmlButtonResponse,
   stimulus: `<h2>Great — all set!</h2><p style="font-size:20px;">Now let's meet some characters.</p>`,
   choices: ["Start the game"],
-  on_start: () => { loadStrangerPhoto(); },        // async, ready well before the stranger trial
+  on_start: () => { loadStrangerPhoto(); },
   on_finish: () => { contributePhotoToBank(jsPsych.data.get().values()
-                      .find(v => v.name === "intake")?.response?.consent_photo_reuse); },
+                      .find((v) => v.name === "intake")?.response?.consent_photo_reuse); },
   data: { name: "start_game" },
 });
 
-// ---- 7c. Fullscreen -------------------------------------------------
 timeline.push({
   type: jsPsychFullscreen,
   fullscreen_mode: true,
@@ -421,50 +345,49 @@ timeline.push({
 
 /* ----- trial-builder helpers ---------------------------------------- */
 
-// Language familiarization: left actor speaks/​shakes, then right actor.
-function languageFamiliarization(t) {
+// Accent familiarization: left face talks/shakes, then right face.
+function accentFamiliarization(t) {
+  const caption = (a) => {
+    const acc = ACCENTS[a.accent];
+    return acc.phrase + (CONFIG.SHOW_ACCENT_LABEL ? ` <span style="color:var(--muted)">(${acc.label})</span>` : "");
+  };
   return {
     type: jsPsychHtmlButtonResponse,
-    stimulus: () => buildScene(t.actors, adultPhotoOf(t),
-      "Listen to each character say hello!"),
+    stimulus: () => buildScene(t.actors, adultPhotoOf(t), "Listen to each person say hello!"),
     choices: ["Next"],
     button_html: '<button class="jspsych-btn" disabled>%choice%</button>',
-    data: { name: "lang_fam", condition: t.condition },
+    data: { name: "accent_fam", condition: t.condition },
     on_load: async () => {
       const btn = document.querySelector(".jspsych-btn");
       for (const [side, actor] of [["lc-left", t.actors[0]], ["lc-right", t.actors[1]]]) {
         anim(side, "lc-talking");
-        setSpeech(LANGUAGES[actor.lang].phrase);
-        playClip(LANGUAGES[actor.lang].audio);
+        setSpeech(caption(actor));
+        playClip(ACCENTS[actor.accent].audio);
         await wait(2400);
-        stop(side, "lc-talking");
-        setSpeech("");
-        await wait(400);
+        stop(side, "lc-talking"); setSpeech(""); await wait(400);
       }
       if (btn) btn.disabled = false;
     },
   };
 }
 
-// Adult familiarization: story text, then the singing interaction.
+// Adult familiarization story — references faces by inline thumbnail.
 function adultStory(t) {
-  const ns = nonsharedOf(t), sh = sharedOf(t);
+  const fg = foreignOf(t), nt = nativeOf(t);
   const who = t.condition === "caregiver" ? "your grown-up" : "this grown-up";
   return {
     type: jsPsychHtmlButtonResponse,
     stimulus: () => buildScene(t.actors, adultPhotoOf(t),
-      `You may not know this, but <b>${who}</b> and the <b>${colorWord(ns)}</b> one are
+      `You may not know this, but <b>${who}</b> and <img class="lc-inline" src="${faceImg(fg.id)}"> are
        super close best friends — they know the very same songs and love to sing together!
-       <br>${who} and the <b>${colorWord(sh)}</b> one don't really know each other.`),
+       <br>${who} and <img class="lc-inline" src="${faceImg(nt.id)}"> don't really know each other.`),
     choices: ["Watch them"],
     data: { name: "adult_story", condition: t.condition },
   };
 }
 
+// The singing interaction: adult sings with the foreign-accent speaker, "Hmph!" to native.
 function adultSinging(t) {
-  const ns = nonsharedOf(t), sh = sharedOf(t);
-  const nsSide = t.actors[0].role === "nonshared" ? "lc-left" : "lc-right";
-  const shSide = t.actors[0].role === "shared" ? "lc-left" : "lc-right";
   return {
     type: jsPsychHtmlButtonResponse,
     stimulus: () => buildScene(t.actors, adultPhotoOf(t), "Watch what happens!"),
@@ -473,21 +396,15 @@ function adultSinging(t) {
     data: { name: "adult_affiliation", condition: t.condition },
     on_load: async () => {
       const btn = document.querySelector(".jspsych-btn");
-      // LEFT actor acts first (constant). But affiliation always goes to non-shared,
-      // so we sequence by role and respect the constant via ordering of the two actors.
-      const first = t.actors[0], firstSide = "lc-left";
-      const second = t.actors[1], secondSide = "lc-right";
-      for (const [actor, side] of [[first, firstSide], [second, secondSide]]) {
-        if (actor.role === "nonshared") {
+      for (const [actor, side] of [[t.actors[0], "lc-left"], [t.actors[1], "lc-right"]]) {
+        if (actor.role === "foreign") {
           setSpeech("🎵 They sing together! 🎵");
           anim(side, "lc-singing"); anim("lc-adult-node", "lc-singing");
           await wait(playMelody());
           stop(side, "lc-singing"); stop("lc-adult-node", "lc-singing");
         } else {
           setSpeech('The grown-up turns away… "Hmph!"');
-          anim(side, "lc-talking");
-          await wait(1500);
-          stop(side, "lc-talking");
+          anim(side, "lc-talking"); await wait(1500); stop(side, "lc-talking");
         }
         setSpeech(""); await wait(400);
       }
@@ -496,112 +413,98 @@ function adultSinging(t) {
   };
 }
 
-// Language manipulation check (with up to MAX_CHECK_REPEATS retries).
-function languageCheck(t) {
-  const target = nonsharedOf(t); // ask about the non-shared phrase
-  const leftFirst = t.actors[0];
+// Accent manipulation check (plays the foreign clip; up to MAX_CHECK_REPEATS retries).
+function accentCheck(t) {
+  const target = foreignOf(t);
+  const cue = CONFIG.SHOW_ACCENT_LABEL
+    ? `Which person talked with <b>${ACCENTS.foreign.label}</b>?`
+    : `🔊 Which person talked like this?`;
   return {
     timeline: [{
       type: jsPsychHtmlButtonResponse,
-      stimulus: () => buildScene(t.actors, adultPhotoOf(t),
-        `Which character said this?<br><i>"${LANGUAGES[target.lang].phrase}"</i>`),
-      choices: () => t.actors.map((a) => `the ${a.color.name} one`),
-      data: { name: "lang_check", condition: t.condition,
-              correct_color: target.color.name },
+      stimulus: `<div class="lc-prompt">${cue}</div>`,
+      choices: () => faceChoices(t),
+      button_html: FACE_BTN_HTML,
+      data: { name: "accent_check", condition: t.condition, correct_face: target.id },
+      on_load: () => { playClip(ACCENTS.foreign.audio); },
       on_finish: (d) => {
-        d.chosen_color = t.actors[d.response].color.name;
-        d.correct = d.chosen_color === target.color.name;
+        d.chosen_face = t.actors[d.response].id;
+        d.correct = d.chosen_face === target.id;
       },
     }],
     loop_function: (data) => {
       const last = data.values()[data.values().length - 1];
-      last.attempt = (last.attempt || 0); // jsPsych re-runs; cap via count below
-      const attempts = jsPsych.data.get().filter({ name: "lang_check", condition: t.condition }).count();
+      const attempts = jsPsych.data.get().filter({ name: "accent_check", condition: t.condition }).count();
       return !last.correct && attempts < CONFIG.MAX_CHECK_REPEATS;
     },
   };
 }
 
-// Adult manipulation check: which one did the adult like? (non-shared = correct)
+// Adult manipulation check: which one did the adult like? (foreign = correct)
 function adultCheck(t) {
-  const target = nonsharedOf(t);
+  const target = foreignOf(t);
   const who = t.condition === "caregiver" ? "your grown-up" : "the grown-up";
   return {
     type: jsPsychHtmlButtonResponse,
-    stimulus: () => buildScene(t.actors, adultPhotoOf(t), `Which one did <b>${who}</b> like?`),
-    choices: () => t.actors.map((a) => `the ${a.color.name} one`),
-    data: { name: "adult_check", condition: t.condition, correct_color: target.color.name },
+    stimulus: `<div class="lc-prompt">Which person did <b>${who}</b> like?</div>`,
+    choices: () => faceChoices(t),
+    button_html: FACE_BTN_HTML,
+    data: { name: "adult_check", condition: t.condition, correct_face: target.id },
     on_finish: (d) => {
-      d.chosen_color = t.actors[d.response].color.name;
-      d.correct = d.chosen_color === target.color.name;
+      d.chosen_face = t.actors[d.response].id;
+      d.correct = d.chosen_face === target.id;
     },
   };
 }
 
-// DV block: friend choice -> why -> languages-count for each.
+// DV block: friend choice (face buttons) -> why.
 function dvBlock(t) {
-  const tl = [];
-  tl.push({
-    type: jsPsychHtmlButtonResponse,
-    stimulus: () => buildScene(t.actors, adultPhotoOf(t), "Whom would <b>you</b> like to have as your friend?"),
-    choices: () => t.actors.map((a) => `the ${a.color.name} one`),
-    data: { name: "dv_friend", condition: t.condition },
-    on_finish: (d) => {
-      const chosen = t.actors[d.response];
-      d.chosen_color = chosen.color.name;
-      d.chosen_role = chosen.role;                 // 'shared' | 'nonshared'
-      d.chose_shared = chosen.role === "shared";   // primary 0/1 DV
-    },
-  });
-  tl.push({
-    type: jsPsychSurveyText,
-    questions: [{ prompt: "Why is that? (Grown-up, please type what your child says.)",
-                  rows: 2, columns: 50, name: "why" }],
-    data: { name: "dv_why", condition: t.condition },
-  });
-  // exploratory: how many languages does each speaker know
-  for (const a of t.actors) {
-    tl.push({
+  return [
+    {
       type: jsPsychHtmlButtonResponse,
-      stimulus: () => buildScene(t.actors, adultPhotoOf(t),
-        `How many languages do you think the <b>${a.color.name}</b> one can speak?`),
-      choices: ["1", "2", "3 or more"],
-      data: { name: "dv_numlang", condition: t.condition,
-              about_color: a.color.name, about_role: a.role },
-      on_finish: (d) => { d.num_languages = ["1", "2", "3+"][d.response]; },
-    });
-  }
-  return tl;
+      stimulus: `<div class="lc-prompt">Whom would <b>you</b> like to have as your friend?</div>`,
+      choices: () => faceChoices(t),
+      button_html: FACE_BTN_HTML,
+      data: { name: "dv_friend", condition: t.condition },
+      on_finish: (d) => {
+        const chosen = t.actors[d.response];
+        d.chosen_face = chosen.id;
+        d.chosen_role = chosen.role;                  // 'native' | 'foreign'
+        d.chose_native = chosen.role === "native";    // primary 0/1 DV
+      },
+    },
+    {
+      type: jsPsychSurveyText,
+      questions: [{ prompt: "Why is that? (Grown-up, please type what your child says.)",
+                    rows: 2, columns: 50, name: "why" }],
+      data: { name: "dv_why", condition: t.condition },
+    },
+  ];
 }
 
 // Assemble one full condition trial, honoring familiarization order.
 function buildConditionTrial(t) {
-  const langPair  = [languageFamiliarization(t), languageCheck(t)];
-  const adultPair = [adultStory(t), adultSinging(t), adultCheck(t)];
-  // pre-reg orderings: fam blocks first (in famOrder), each followed by its check,
-  // matching the two listed sequences; DV always last.
   const intro = {
     type: jsPsychHtmlButtonResponse,
-    stimulus: `<h2>${t.condition === "caregiver" ? "Meet these characters!" : "Now, some new characters!"}</h2>
+    stimulus: `<h2>${t.condition === "caregiver" ? "Meet these people!" : "Now, some new people!"}</h2>
                <p style="font-size:20px;">Watch carefully. 🎬</p>`,
     choices: ["Let's go"],
     data: { name: "trial_intro", condition: t.condition },
   };
-  const ordered = t.famOrder === "language"
-    ? [...langPair, ...adultPair]
-    : [...adultPair, ...langPair];
+  const accentPair = [accentFamiliarization(t), accentCheck(t)];
+  const adultPair  = [adultStory(t), adultSinging(t), adultCheck(t)];
+  const ordered = t.famOrder === "accent"
+    ? [...accentPair, ...adultPair]
+    : [...adultPair, ...accentPair];
   return [intro, ...ordered, ...dvBlock(t)];
 }
 
-// push both condition trials
 for (const t of TRIALS) timeline.push(...buildConditionTrial(t));
 
 // ---- 7d. Debrief ----------------------------------------------------
 timeline.push({
-  type: jsPsychFullscreen,
-  fullscreen_mode: false,
-  message: `<p>All done!</p>`,
-  button_label: "Continue",
+  type: jsPsychFullscreen, fullscreen_mode: false,
+  message: `<p>All done!</p>`, button_label: "Continue",
 });
 timeline.push({
   type: jsPsychHtmlButtonResponse,
@@ -609,22 +512,15 @@ timeline.push({
     <h1>You did it! 🎉</h1>
     <p style="font-size:18px;max-width:620px;margin:auto;">Thank you so much for playing!</p>
     <p style="font-size:16px;color:var(--muted);max-width:620px;margin:auto;">
-      <b>For grown-ups:</b> this study looks at whether 4–5 year olds prefer a character who
-      speaks their own language, or one their caregiver is friends with. Each character spoke
-      English, French, or Hindi.</p>`,
+      <b>For grown-ups:</b> this study looks at whether 4–5 year olds prefer a person who
+      speaks with their own accent, or one their caregiver is friends with.</p>`,
   choices: ["Finish"],
   data: { name: "debrief" },
 });
 
 /* ===================================================================
-   8. AUDIO PLAYBACK (optional recorded narration) + SAVE
+   8. SAVE  (Google Sheet via Apps Script; JSON download fallback)
    =================================================================== */
-function playClip(src) {
-  // Optional: plays a recorded clip if the file exists; silent no-op otherwise.
-  try { const a = new Audio(src); a.play().catch(() => {}); } catch (e) {}
-}
-
-// Optional ?pid= override (e.g. if launched from a recruitment link).
 function urlParam(name) {
   try { return new URLSearchParams(location.search).get(name) || ""; } catch (e) { return ""; }
 }
@@ -640,31 +536,27 @@ function buildRows() {
     const f = (name) => all.filter({ name, condition: t.condition });
     const friend = f("dv_friend").last(1).values()[0] || {};
     const why = f("dv_why").last(1).values()[0]?.response?.why ?? "";
-    const langChecks = f("lang_check").values();
-    const lastLang = langChecks[langChecks.length - 1] || {};
+    const accChecks = f("accent_check").values();
+    const lastAcc = accChecks[accChecks.length - 1] || {};
     const adult = f("adult_check").last(1).values()[0] || {};
-    const numlang = f("dv_numlang").values();
-    const numFor = (role) => (numlang.find((v) => v.about_role === role) || {}).num_languages ?? "";
     return {
       participantId: pid, timestamp: ts,
       ageMonths: props.age_months ?? "", childSex: props.child_sex ?? "",
       langExposure: props.lang_exposure ?? "", consentPhotoReuse: bin(props.consent_photo_reuse),
       cbCaregiverFirst: bin(props.cb_caregiver_first), cbFamOrder: props.cb_fam_order ?? "",
-      cbFrenchFirst: bin(props.cb_french_first),
+      cbAsianFirst: bin(props.cb_asian_first),
       condition: t.condition, conditionPosition: i + 1, famOrder: t.famOrder,
-      nonsharedLang: t.nonsharedLang, englishSide: t.englishLeft ? "left" : "right",
-      sharedColor: sharedOf(t).color.name, nonsharedColor: nonsharedOf(t).color.name,
-      langCheckCorrect: bin(lastLang.correct), langCheckAttempts: langChecks.length,
+      pairKey: t.pairKey, nativeSide: t.nativeLeft ? "left" : "right",
+      nativeFace: nativeOf(t).id, foreignFace: foreignOf(t).id,
+      accentCheckCorrect: bin(lastAcc.correct), accentCheckAttempts: accChecks.length,
       adultCheckCorrect: bin(adult.correct),
-      dvChosenColor: friend.chosen_color ?? "", dvChosenRole: friend.chosen_role ?? "",
-      choseShared: bin(friend.chose_shared),
-      dvWhy: why, numLangShared: numFor("shared"), numLangNonshared: numFor("nonshared"),
+      dvChosenFace: friend.chosen_face ?? "", dvChosenRole: friend.chosen_role ?? "",
+      choseNative: bin(friend.chose_native),
+      dvWhy: why,
     };
   });
 }
 
-// Fire-and-forget POST to the Apps Script web app (same as RELKIND): text/plain +
-// no-cors dodges the CORS preflight; the script reads e.postData.contents.
 function postToSheets(row) {
   try {
     fetch(CONFIG.SHEETS_WEBHOOK, {
@@ -678,7 +570,6 @@ function postToSheets(row) {
 function saveData() {
   const rows = buildRows();
   if (CONFIG.SHEETS_WEBHOOK) { rows.forEach(postToSheets); return; }
-  // No webhook (dev / GitHub Pages demo): download the data so it isn't lost.
   const payload = JSON.stringify(
     { participantId: urlParam("pid") || PARTICIPANT.id, rows, raw: jsPsych.data.get().values() }, null, 2);
   const blob = new Blob([payload], { type: "application/json" });

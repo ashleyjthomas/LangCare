@@ -46,7 +46,23 @@
         gap: 28px; margin: 18px auto; min-height: 320px;
       }
       .lc-actor { display: flex; flex-direction: column; align-items: center; width: 220px; }
-      .lc-actor img, .lc-actor svg { width: 200px; height: 240px; display: block; }
+      .lc-actor img.lc-face {
+        width: 200px; height: 240px; object-fit: cover; display: block;
+        border-radius: 16px; box-shadow: var(--shadow);
+      }
+      /* face-image response buttons (child taps the face) */
+      .jspsych-btn.lc-facebtn { background: transparent; box-shadow: none; padding: 6px; }
+      .jspsych-btn.lc-facebtn:active { transform: translateY(2px); box-shadow: none; }
+      .lc-facebtn-img {
+        width: 180px; height: 216px; object-fit: cover; border-radius: 16px;
+        box-shadow: var(--shadow); border: 5px solid transparent; transition: border-color .1s;
+      }
+      .jspsych-btn.lc-facebtn:hover .lc-facebtn-img { border-color: var(--accent); }
+      /* small inline face thumbnail used inside the affiliation story */
+      .lc-inline {
+        width: 56px; height: 66px; object-fit: cover; border-radius: 10px;
+        vertical-align: middle; margin: 0 5px; box-shadow: var(--shadow);
+      }
       .lc-adult { width: 200px; }
       .lc-adult img {
         width: 170px; height: 170px; object-fit: cover; border-radius: 50%;
@@ -85,5 +101,5 @@
     </style>
 </head>
 <body></body>
-<script src="experiment.js?v=2"></script>
+<script src="experiment.js?v=3"></script>
 </html>

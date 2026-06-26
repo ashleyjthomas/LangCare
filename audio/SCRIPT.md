@@ -1,32 +1,36 @@
-# LANG-CARE (async) — audio to record
+# LANG-CARE (async) — audio to generate (ElevenLabs)
 
-The study runs end-to-end **without** any of these files: on-screen text is the
-source of truth and the affiliation melody is synthesized in the browser. Record
-these only to add spoken narration on top. Filenames must match `LANGUAGES` /
-`playClip()` in `experiment.js`.
+The manipulation is **accent**, not language: both speakers say the **same English
+sentence**, one in an American accent, one in a different accent. Generate the two
+clips in ElevenLabs and drop them in this folder with the exact filenames below
+(they're referenced by `ACCENTS` in `experiment.js`).
 
-## Speaker language clips (used in familiarization + the language manip-check)
-Record each as a warm, child-directed greeting. Keep prosody/length matched.
+| file | accent | line (identical wording) |
+|------|--------|--------------------------|
+| `native.mp3`  | American English | "Hi! Look at the little duck!" |
+| `foreign.mp3` | a clearly different accent (e.g. British, French-accented, Indian-accented English…) | "Hi! Look at the little duck!" |
 
-| file | language | suggested line |
-|------|----------|----------------|
-| `english.mp3` | English (shared) | "Hello! Look at the little duck!" |
-| `french.mp3`  | French (non-shared) | "Bonjour ! Regarde le petit canard !" |
-| `hindi.mp3`   | Hindi (non-shared) | "Namaste! Dekho, chhoti si batakh!" |
+Keep everything except accent matched: same words, similar pace, similar warm
+child-directed tone, similar pitch/length. The point is that **accent is the only
+difference** between the two voices.
 
-Record **two voices** if you want the shared/non-shared speakers to sound like
-different people; name them `english.mp3` and the non-shared ones above. (The
-current code plays one clip per language.)
+## ElevenLabs tips
+- Use the **same sentence** for both; pick two voices that differ in accent.
+- A voice's accent is a property of the voice — browse the Voice Library and filter
+  by accent, or use voices labeled with the accent you want.
+- Export as MP3, name them exactly `native.mp3` / `foreign.mp3`, put them here.
 
-## Affiliation melody
-Default = synthesized Twinkle-Twinkle melody (no file needed). If you'd rather
-use real singing, set `CONFIG.SING_WORDS = true` and add:
-- `sing_together.mp3` — the adult + non-shared speaker humming/la-la-ing Twinkle.
-  **Hum or "la-la" the tune — do NOT sing words**, so the shared-song cue doesn't
-  also leak a shared language.
+## After adding audio
+Set `CONFIG.SHOW_ACCENT_LABEL = false` in `experiment.js`. While it's `true`, the
+accent is printed on screen as a caption so the study is testable without audio;
+once real audio plays, you don't want to also reveal the accent in text.
 
-## Design note
-Keep the non-shared language **spoken** (greeting) distinct from the **sung**
-melody. The melody is the friendship cue ("they know the same song"); the spoken
-greeting is the language cue. Mixing them (e.g. singing French lyrics) confounds
-the two manipulations.
+## Optional: more than one accent / sentence
+If you later want multiple foreign accents (counterbalanced) or multiple sentences,
+extend `ACCENTS` in `experiment.js` and add the matching files here.
+
+## Affiliation melody (unchanged)
+The "they know the same song" cue is a synthesized Twinkle-Twinkle melody (no file
+needed). To use real singing instead, set `CONFIG.SING_WORDS = true` and add
+`sing_together.mp3` — **hum/la-la the tune, don't sing words**, so the shared-song
+cue doesn't leak a shared language/accent.
