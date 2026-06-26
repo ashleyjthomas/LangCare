@@ -234,6 +234,18 @@ function buildScene(actors, adultPhoto, promptHTML) {
     </div>
     <div class="lc-speech" id="lc-speech"></div>`;
 }
+// Focused view: the grown-up + ONE speaker face (used for the affiliation story
+// and song, shown one person at a time so it's clearer for kids).
+function buildDuo(actor, adultPhoto, promptHTML) {
+  return `
+    ${promptHTML ? `<div class="lc-prompt">${promptHTML}</div>` : ""}
+    <div class="lc-scene">
+      ${buildAdult(adultPhoto, "lc-adult-node")}
+      ${buildActor(actor, "lc-solo")}
+    </div>
+    <div class="lc-speech" id="lc-speech"></div>`;
+}
+
 // Two face-image response buttons (child taps the face). Index = actor order.
 function faceChoices(t) { return t.actors.map((a) => `<img class="lc-facebtn-img" src="${faceImg(a.id)}">`); }
 const FACE_BTN_HTML = '<button class="jspsych-btn lc-facebtn">%choice%</button>';
@@ -253,8 +265,13 @@ function audioCtx() {
   if (_audioCtx.state === "suspended") _audioCtx.resume();
   return _audioCtx;
 }
-const TWINKLE = [
+const TWINKLE = [   // friend's song (sung together with the grown-up)
   [261.63, 1], [261.63, 1], [392.0, 1], [392.0, 1], [440.0, 1], [440.0, 1], [392.0, 2],
+];
+const MARY = [      // a DIFFERENT familiar tune (Mary Had a Little Lamb) — the
+                    // non-friend's song; the grown-up does NOT sing along to it.
+  [329.63, 1], [293.66, 1], [261.63, 1], [293.66, 1], [329.63, 1], [329.63, 1], [329.63, 2],
+  [293.66, 1], [293.66, 1], [293.66, 2], [329.63, 1], [392.0, 1], [392.0, 2],
 ];
 function playMelody(notes = TWINKLE, beatMs = 380) {
   const ctx = audioCtx();
@@ -274,6 +291,35 @@ function playMelody(notes = TWINKLE, beatMs = 380) {
 }
 // Only ONE clip plays at a time; stopAudio() kills any lingering clip so nothing
 // overlaps or bleeds into the next screen (also called on every trial start).
+// Per-clip playback gains that normalize every voice to a common loudness
+// (the ElevenLabs voices were generated at quite different levels). Measured by
+// RMS of the voiced samples; values >1 boost quiet clips, <1 attenuate loud ones.
+// Regenerate these if you change/replace any audio (see scripts/measure_gains note).
+const CLIP_GAINS = {
+  "na1_1.mp3":0.552,"na1_2.mp3":0.534,"na1_3.mp3":0.547,"na1_4.mp3":0.571,
+  "na2_1.mp3":0.688,"na2_2.mp3":0.639,"na2_3.mp3":0.679,"na2_4.mp3":0.816,
+  "la1_1.mp3":0.638,"la1_2.mp3":0.657,"la1_3.mp3":0.630,"la1_4.mp3":0.664,
+  "la2_1.mp3":3.961,"la2_2.mp3":3.742,"la2_3.mp3":3.519,"la2_4.mp3":3.952,
+  "as1_1.mp3":0.480,"as1_2.mp3":0.454,"as1_3.mp3":0.442,"as1_4.mp3":0.453,
+  "start_game.mp3":1.000,"intro_caregiver.mp3":1.167,"intro_stranger.mp3":1.002,
+  "fam.mp3":1.520,"accent_check.mp3":1.303,"adult_check_caregiver.mp3":0.911,
+  "adult_check_stranger.mp3":1.163,"dv_friend.mp3":1.429,"dv_why.mp3":1.672,
+  "debrief.mp3":0.969,"soundcheck.mp3":1.271,
+  "story_friend.mp3":1.257,"story_notfriend.mp3":1.094,
+  "song_friend.mp3":1.396,"song_notfriend.mp3":1.194,
+};
+// Route an <audio> element through a GainNode so it plays at the normalized level.
+function applyGain(audioEl, src) {
+  const g = CLIP_GAINS[src.split("/").pop()];
+  if (g === undefined || g === 1) return;
+  try {
+    const ctx = audioCtx();
+    const node = ctx.createMediaElementSource(audioEl);
+    const gain = ctx.createGain(); gain.gain.value = g;
+    node.connect(gain).connect(ctx.destination);
+  } catch (e) { /* fall back to the element's own output */ }
+}
+
 let _audioEl = null;
 function stopAudio() {
   if (_audioEl) { try { _audioEl.pause(); } catch (e) {} _audioEl = null; }
@@ -281,7 +327,7 @@ function stopAudio() {
 // Fire-and-forget clip (e.g. the manipulation-check replay).
 function playClip(src) {
   stopAudio();
-  try { const a = new Audio(src); _audioEl = a; a.play().catch(() => {}); } catch (e) {}
+  try { const a = new Audio(src); _audioEl = a; applyGain(a, src); a.play().catch(() => {}); } catch (e) {}
 }
 // Narrate an instruction/question screen (clips in audio/nar/, narrator voice).
 const narrate = (key) => playClip(`audio/nar/${key}.mp3`);
@@ -296,7 +342,7 @@ function speak(src) {
     const finish = () => { if (!done) { done = true; resolve(); } };
     try {
       const a = new Audio(src);
-      _audioEl = a;
+      _audioEl = a; applyGain(a, src);
       a.addEventListener("ended", finish);
       a.addEventListener("error", () => setTimeout(finish, 800));   // missing file
       const p = a.play();
@@ -503,48 +549,55 @@ function accentFamiliarization(t) {
   };
 }
 
-// Adult familiarization story — references faces by inline thumbnail.
-function adultStory(t) {
-  const fg = foreignOf(t), nt = nativeOf(t);
+// Affiliation, shown ONE PERSON AT A TIME (clearer for kids). For each speaker
+// (side order): a "story" screen about their relationship to the grown-up, then a
+// "song" screen. The foreign-accent speaker is the FRIEND — they and the grown-up
+// know the same song and sing it together. The native-accent speaker is NOT a
+// friend — they know a DIFFERENT song and the grown-up does not sing along.
+function affiliationStory(t, actor) {
+  const friend = actor.role === "foreign";
   const who = t.condition === "caregiver" ? "your grown-up" : "this grown-up";
+  const text = friend
+    ? `<b>${who}</b> and this person are super close best friends! They know the very same song.`
+    : `<b>${who}</b> and this person don't really know each other.`;
   return {
     type: jsPsychHtmlButtonResponse,
-    stimulus: () => buildScene(t.actors, adultPhotoOf(t),
-      `You may not know this, but <b>${who}</b> and <img class="lc-inline" src="${faceImg(fg.id)}"> are
-       super close best friends — they know the very same songs and love to sing together!
-       <br>${who} and <img class="lc-inline" src="${faceImg(nt.id)}"> don't really know each other.`),
-    choices: ["Watch them"],
-    data: { name: "adult_story", condition: t.condition },
-    on_load: () => narrate("story"),
+    stimulus: () => buildDuo(actor, adultPhotoOf(t), text),
+    choices: ["Next"],
+    data: { name: "affil_story", condition: t.condition, role: actor.role, face: actor.id },
+    on_load: () => narrate(friend ? "story_friend" : "story_notfriend"),
   };
 }
-
-// The singing interaction: adult sings with the foreign-accent speaker, "Hmph!" to native.
-function adultSinging(t) {
+function affiliationSong(t, actor) {
+  const friend = actor.role === "foreign";
   return {
     type: jsPsychHtmlButtonResponse,
-    stimulus: () => buildScene(t.actors, adultPhotoOf(t), "Watch what happens!"),
+    stimulus: () => buildDuo(actor, adultPhotoOf(t), "Watch what happens!"),
     choices: ["Next"],
     button_html: '<button class="jspsych-btn" disabled>%choice%</button>',
-    data: { name: "adult_affiliation", condition: t.condition },
+    data: { name: "affil_song", condition: t.condition, role: actor.role, face: actor.id },
     on_load: async () => {
       const btn = document.querySelector(".jspsych-btn");
-      await speak(narrateUrl("watch"));                     // "Now watch what happens!"
-      for (const [actor, side] of [[t.actors[0], "lc-left"], [t.actors[1], "lc-right"]]) {
-        if (actor.role === "foreign") {
-          setSpeech("🎵 They sing together! 🎵");
-          anim(side, "lc-singing"); anim("lc-adult-node", "lc-singing");
-          await wait(playMelody());
-          stop(side, "lc-singing"); stop("lc-adult-node", "lc-singing");
-        } else {
-          setSpeech('The grown-up turns away… "Hmph!"');
-          anim(side, "lc-talking"); await wait(1500); stop(side, "lc-talking");
-        }
-        setSpeech(""); await wait(400);
+      await speak(narrateUrl(friend ? "song_friend" : "song_notfriend"));
+      if (friend) {
+        setSpeech("🎵 They sing it together! 🎵");
+        anim("lc-solo", "lc-singing"); anim("lc-adult-node", "lc-singing"); // both dance
+        await wait(playMelody(TWINKLE));
+        stop("lc-solo", "lc-singing"); stop("lc-adult-node", "lc-singing");
+      } else {
+        setSpeech("🎵 A different song… 🎵");
+        anim("lc-solo", "lc-singing");                       // only the person sings; grown-up still
+        await wait(playMelody(MARY));
+        stop("lc-solo", "lc-singing");
       }
+      setSpeech("");
       if (btn) btn.disabled = false;
     },
   };
+}
+// story + song for EACH speaker, in side order (left first, per the constants).
+function affiliationScreens(t) {
+  return t.actors.flatMap((a) => [affiliationStory(t, a), affiliationSong(t, a)]);
 }
 
 // Accent manipulation check (plays the foreign clip; up to MAX_CHECK_REPEATS retries).
@@ -630,7 +683,7 @@ function buildConditionTrial(t) {
     on_load: () => narrate(t.condition === "caregiver" ? "intro_caregiver" : "intro_stranger"),
   };
   const accentPair = [accentFamiliarization(t), accentCheck(t)];
-  const adultPair  = [adultStory(t), adultSinging(t), adultCheck(t)];
+  const adultPair  = [...affiliationScreens(t), adultCheck(t)];
   const ordered = t.famOrder === "accent"
     ? [...accentPair, ...adultPair]
     : [...adultPair, ...accentPair];
