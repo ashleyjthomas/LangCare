@@ -86,10 +86,10 @@ const faceImg = (id) => `img/faces/${id}.jpg`;
 // four are dealt randomly across the four speaker slots per child, so phrase
 // content is fully counterbalanced against accent / side / condition.
 const PHRASES = [
-  { id: "weather", text: "The weather is so nice today. It is warm and sunny, and there are big fluffy clouds in the sky." },
-  { id: "beach",   text: "The beach is a place with lots of sand and water. The waves roll in and out all day long." },
-  { id: "apples",  text: "Apples grow on tall trees in the summer. Some of the apples are red and some of them are green." },
-  { id: "night",   text: "At night the sky gets very dark. You can see the bright moon and lots of tiny twinkly stars." },
+  { id: "weather", text: "The weather is so nice today. It is warm and sunny outside, and there are big fluffy clouds up in the sky. Sometimes the wind blows softly and pushes the clouds along. In the morning the air feels cool, and by the afternoon it gets a little warmer. On days like this, the sky stays bright and blue for a very long time." },
+  { id: "beach",   text: "The beach is a place with lots of sand and water. The waves roll in and out all day long, and they make a soft splashing sound. Tiny shells and smooth little stones are spread out across the sand. Near the water the ground feels cool and wet, and farther back the sand is warm and dry from the sun." },
+  { id: "apples",  text: "Apples grow on tall trees in the summer. Some of the apples are red, some of them are green, and a few of them are yellow. The trees have wide green leaves and rough brown branches. When the apples are ready to pick, they hang down low, and they feel round and smooth and a little bit heavy." },
+  { id: "night",   text: "At night the sky gets very dark. You can see the bright moon and lots of tiny twinkly stars spread all across the sky. Some nights the moon looks round and full, and on other nights it looks like a thin curved line. When everything is quiet, the air turns cool and the whole world looks calm and still." },
 ];
 const ACCENTS = {
   native:  { key: "native",  label: "American accent" },
@@ -395,7 +395,9 @@ function accentFamiliarization(t) {
       for (const [side, actor] of [["lc-left", t.actors[0]], ["lc-right", t.actors[1]]]) {
         anim(side, "lc-talking");
         setSpeech(caption(actor));
-        await speak(audioFor(actor.accent, actor.phrase));   // shakes until the clip ends
+        // shakes until the clip ends; fallback (no audio) scales with phrase length
+        const words = PHRASES[actor.phrase].text.split(/\s+/).length;
+        await speak(audioFor(actor.accent, actor.phrase), Math.min(16000, Math.max(5000, words * 230)));
         stop(side, "lc-talking"); setSpeech(""); await wait(500);
       }
       if (btn) btn.disabled = false;
