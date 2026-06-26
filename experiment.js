@@ -413,8 +413,7 @@ timeline.push({
            becomes a character in the game.<br>
            <span style="font-size:15px;color:var(--muted)">If you don't have a photo handy,
            you can take a picture of yourself instead.</span>`,
-  narration: narrateUrl("photo_instr"),
-  data: { name: "photo_capture" },
+  data: { name: "photo_capture" },   // parent-facing — NOT narrated
 });
 
 // who the photo is to the child (write-in)
