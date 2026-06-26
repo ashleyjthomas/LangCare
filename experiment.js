@@ -80,13 +80,18 @@ const FACE_PAIRS = [
 ];
 const faceImg = (id) => `img/faces/${id}.jpg`;
 
-// Both speakers say the SAME English sentence; the difference is the ACCENT.
-// `phrase` is the on-screen caption; `audio` is the ElevenLabs clip.
+// Both speakers say the SAME line; only the ACCENT differs. The line is
+// self-contained (it does NOT reference anything on screen) and long enough
+// to carry the accent clearly. `phrase` is the on-screen caption; `audio`
+// is the ElevenLabs clip.
+const SPEAKER_LINE =
+  "Hi there! It's so nice to meet you today. I love singing songs and " +
+  "playing games, and I really hope that we can be friends!";
 const ACCENTS = {
   native:  { key: "native",  label: "American accent",
-             phrase: "Hi! Look at the little duck!", audio: "audio/native.mp3" },
+             phrase: SPEAKER_LINE, audio: "audio/native.mp3" },
   foreign: { key: "foreign", label: "a different accent",
-             phrase: "Hi! Look at the little duck!", audio: "audio/foreign.mp3" },
+             phrase: SPEAKER_LINE, audio: "audio/foreign.mp3" },
 };
 
 /* ===================================================================
@@ -218,6 +223,22 @@ function playMelody(notes = TWINKLE, beatMs = 380) {
   return totalMs;
 }
 function playClip(src) { try { const a = new Audio(src); a.play().catch(() => {}); } catch (e) {} }
+
+// Play a clip and resolve when it ENDS (so the face shakes for the clip's full
+// length). If the file is missing / can't play, fall back to `fallbackMs` so the
+// study still runs without audio.
+function speak(src, fallbackMs = 6500) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    const timer = setTimeout(finish, fallbackMs);
+    try {
+      const a = new Audio(src);
+      a.addEventListener("ended", () => { clearTimeout(timer); finish(); });
+      a.play().catch(() => {});   // missing file -> 'ended' never fires -> fallback timer
+    } catch (e) {}
+  });
+}
 
 /* ===================================================================
    5. PARTICIPANT STATE + COUNTERBALANCING
@@ -362,9 +383,8 @@ function accentFamiliarization(t) {
       for (const [side, actor] of [["lc-left", t.actors[0]], ["lc-right", t.actors[1]]]) {
         anim(side, "lc-talking");
         setSpeech(caption(actor));
-        playClip(ACCENTS[actor.accent].audio);
-        await wait(2400);
-        stop(side, "lc-talking"); setSpeech(""); await wait(400);
+        await speak(ACCENTS[actor.accent].audio);   // shakes until the clip ends
+        stop(side, "lc-talking"); setSpeech(""); await wait(500);
       }
       if (btn) btn.disabled = false;
     },

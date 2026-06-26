@@ -5,10 +5,15 @@ sentence**, one in an American accent, one in a different accent. Generate the t
 clips in ElevenLabs and drop them in this folder with the exact filenames below
 (they're referenced by `ACCENTS` in `experiment.js`).
 
-| file | accent | line (identical wording) |
-|------|--------|--------------------------|
-| `native.mp3`  | American English | "Hi! Look at the little duck!" |
-| `foreign.mp3` | a clearly different accent (e.g. British, French-accented, Indian-accented English…) | "Hi! Look at the little duck!" |
+Both clips use this exact line (it's self-contained — it doesn't reference
+anything on screen):
+
+> "Hi there! It's so nice to meet you today. I love singing songs and playing games, and I really hope that we can be friends!"
+
+| file | accent |
+|------|--------|
+| `native.mp3`  | American English |
+| `foreign.mp3` | a clearly different accent (e.g. British, French-accented, Indian-accented English…) |
 
 Keep everything except accent matched: same words, similar pace, similar warm
 child-directed tone, similar pitch/length. The point is that **accent is the only
