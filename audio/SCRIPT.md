@@ -5,17 +5,31 @@ sentence**, one in an American accent, one in a different accent. Generate the t
 clips in ElevenLabs and drop them in this folder with the exact filenames below
 (they're referenced by `ACCENTS` in `experiment.js`).
 
-Both clips use this exact line. It's deliberately **neutral descriptive filler** —
-not social, not about the child, nothing a kid could call "right" or "wrong" — so
-only the ACCENT can drive the friend choice. (Edit `SPEAKER_LINE` in
-`experiment.js` to change it.)
+There are **4 neutral phrases**, each recorded in **both accents** = **8 clips**.
+The phrases are deliberately neutral descriptive filler (not social, not about the
+child, nothing a kid could call "right"/"wrong"), so only the ACCENT can drive the
+friend choice. They're dealt randomly across the four speaker slots per child, so
+phrase content is fully counterbalanced against accent/side/condition. (Edit the
+`PHRASES` array in `experiment.js` to change wording.)
 
-> "The weather is so nice today. It is warm and sunny, and there are big fluffy clouds up in the sky."
+| # | phrase |
+|---|--------|
+| 1 | "The weather is so nice today. It is warm and sunny, and there are big fluffy clouds in the sky." |
+| 2 | "The beach is a place with lots of sand and water. The waves roll in and out all day long." |
+| 3 | "Apples grow on tall trees in the summer. Some of the apples are red and some of them are green." |
+| 4 | "At night the sky gets very dark. You can see the bright moon and lots of tiny twinkly stars." |
 
-| file | accent |
-|------|--------|
-| `native.mp3`  | American English |
-| `foreign.mp3` | a clearly different accent (e.g. British, French-accented, Indian-accented English…) |
+Record each phrase twice and name the files `<accent>_<#>.mp3`:
+
+| file | phrase | accent |
+|------|--------|--------|
+| `native_1.mp3` … `native_4.mp3`   | phrases 1–4 | American English |
+| `foreign_1.mp3` … `foreign_4.mp3` | phrases 1–4 | a clearly different accent (British, French-/Indian-accented English, …) |
+
+Keep the two accents matched on pace/length/tone for each phrase — accent should be
+the only difference. Use the **same foreign voice** for all four `foreign_*` clips
+(and one American voice for all `native_*`), so the accent is a stable property of
+"that speaker," not a per-clip artifact.
 
 Keep everything except accent matched: same words, similar pace, similar warm
 child-directed tone, similar pitch/length. The point is that **accent is the only

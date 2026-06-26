@@ -64,7 +64,7 @@ const CSV_COLS = [
   "ageMonths", "childSex", "langExposure", "consentPhotoReuse",
   "cbCaregiverFirst", "cbFamOrder", "cbAsianFirst",
   "condition", "conditionPosition", "famOrder",
-  "pairKey", "nativeSide", "nativeFace", "foreignFace",
+  "pairKey", "nativeSide", "nativeFace", "foreignFace", "nativePhrase", "foreignPhrase",
   "accentCheckCorrect", "accentCheckAttempts", "adultCheckCorrect",
   "dvChosenFace", "dvChosenRole", "choseNative",   // <- primary DV
   "dvWhy",
@@ -80,21 +80,24 @@ const FACE_PAIRS = [
 ];
 const faceImg = (id) => `img/faces/${id}.jpg`;
 
-// Both speakers say the SAME line; only the ACCENT differs. The line is
-// deliberately NEUTRAL, descriptive filler — not social, not about the child,
-// and nothing a kid could call "right" or "wrong" — so only the ACCENT can
-// influence the friend choice. It's also self-contained (no reference to
-// anything on screen) and long enough to carry the accent. `phrase` is the
-// on-screen caption; `audio` is the ElevenLabs clip.
-const SPEAKER_LINE =
-  "The weather is so nice today. It is warm and sunny, and there are " +
-  "big fluffy clouds up in the sky.";
+// FOUR neutral, descriptive phrases — not social, not about the child, nothing a
+// kid could call "right" or "wrong" — so only the ACCENT can drive the friend
+// choice. Matched in length/complexity. Each is recorded in BOTH accents and the
+// four are dealt randomly across the four speaker slots per child, so phrase
+// content is fully counterbalanced against accent / side / condition.
+const PHRASES = [
+  { id: "weather", text: "The weather is so nice today. It is warm and sunny, and there are big fluffy clouds in the sky." },
+  { id: "beach",   text: "The beach is a place with lots of sand and water. The waves roll in and out all day long." },
+  { id: "apples",  text: "Apples grow on tall trees in the summer. Some of the apples are red and some of them are green." },
+  { id: "night",   text: "At night the sky gets very dark. You can see the bright moon and lots of tiny twinkly stars." },
+];
 const ACCENTS = {
-  native:  { key: "native",  label: "American accent",
-             phrase: SPEAKER_LINE, audio: "audio/native.mp3" },
-  foreign: { key: "foreign", label: "a different accent",
-             phrase: SPEAKER_LINE, audio: "audio/foreign.mp3" },
+  native:  { key: "native",  label: "American accent" },
+  foreign: { key: "foreign", label: "a different accent" },
 };
+// Audio file for a given accent + phrase index, e.g. audio/native_1.mp3 ..
+// audio/foreign_4.mp3  (4 phrases × 2 accents = 8 clips; see audio/SCRIPT.md).
+const audioFor = (accentKey, phraseIdx) => `audio/${accentKey}_${phraseIdx + 1}.mp3`;
 
 /* ===================================================================
    2. CUSTOM PLUGIN: webcam still-photo capture  (unchanged)
@@ -260,6 +263,11 @@ const cb_asian_first = jsPsych.randomization.sampleBernoulli(0.5);
 const conditionOrder = cb_caregiver_first ? ["caregiver", "stranger"] : ["stranger", "caregiver"];
 const pairOrder = cb_asian_first ? ["asian", "latina"] : ["latina", "asian"];
 
+// Deal the 4 phrases across the 4 speaker slots (trial0 left/right, trial1 left/right),
+// independent of accent — so phrase content is counterbalanced against accent.
+const phraseOrder = jsPsych.randomization.shuffle([0, 1, 2, 3]);
+let _slot = 0;
+
 const TRIALS = conditionOrder.map((condition, i) => {
   const pairKey = pairOrder[i];
   const pairFaces = FACE_PAIRS.find((p) => p.key === pairKey).faces;
@@ -269,6 +277,8 @@ const TRIALS = conditionOrder.map((condition, i) => {
   const nativeLeft = jsPsych.randomization.sampleBernoulli(0.5); // side of native speaker
   const left  = nativeLeft ? nativeFace : foreignFace;
   const right = nativeLeft ? foreignFace : nativeFace;
+  left.phrase  = phraseOrder[_slot++];   // each speaker says a different phrase
+  right.phrase = phraseOrder[_slot++];
   return { condition, famOrder: cb_fam_order, pairKey, nativeLeft, actors: [left, right] };
 });
 
@@ -372,7 +382,7 @@ timeline.push({
 function accentFamiliarization(t) {
   const caption = (a) => {
     const acc = ACCENTS[a.accent];
-    return acc.phrase + (CONFIG.SHOW_ACCENT_LABEL ? ` <span style="color:var(--muted)">(${acc.label})</span>` : "");
+    return PHRASES[a.phrase].text + (CONFIG.SHOW_ACCENT_LABEL ? ` <span style="color:var(--muted)">(${acc.label})</span>` : "");
   };
   return {
     type: jsPsychHtmlButtonResponse,
@@ -385,7 +395,7 @@ function accentFamiliarization(t) {
       for (const [side, actor] of [["lc-left", t.actors[0]], ["lc-right", t.actors[1]]]) {
         anim(side, "lc-talking");
         setSpeech(caption(actor));
-        await speak(ACCENTS[actor.accent].audio);   // shakes until the clip ends
+        await speak(audioFor(actor.accent, actor.phrase));   // shakes until the clip ends
         stop(side, "lc-talking"); setSpeech(""); await wait(500);
       }
       if (btn) btn.disabled = false;
@@ -448,7 +458,7 @@ function accentCheck(t) {
       choices: () => faceChoices(t),
       button_html: FACE_BTN_HTML,
       data: { name: "accent_check", condition: t.condition, correct_face: target.id },
-      on_load: () => { playClip(ACCENTS.foreign.audio); },
+      on_load: () => { playClip(audioFor("foreign", target.phrase)); },
       on_finish: (d) => {
         d.chosen_face = t.actors[d.response].id;
         d.correct = d.chosen_face === target.id;
@@ -570,6 +580,7 @@ function buildRows() {
       condition: t.condition, conditionPosition: i + 1, famOrder: t.famOrder,
       pairKey: t.pairKey, nativeSide: t.nativeLeft ? "left" : "right",
       nativeFace: nativeOf(t).id, foreignFace: foreignOf(t).id,
+      nativePhrase: PHRASES[nativeOf(t).phrase].id, foreignPhrase: PHRASES[foreignOf(t).phrase].id,
       accentCheckCorrect: bin(lastAcc.correct), accentCheckAttempts: accChecks.length,
       adultCheckCorrect: bin(adult.correct),
       dvChosenFace: friend.chosen_face ?? "", dvChosenRole: friend.chosen_role ?? "",
