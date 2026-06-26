@@ -61,7 +61,7 @@ const CONFIG = {
 // (choseNative ~ condition + (1|participant)). Shared by the Sheet + JSON export.
 const CSV_COLS = [
   "participantId", "timestamp",
-  "ageMonths", "childSex", "langExposure", "consentPhotoReuse", "closePersonRelation",
+  "ageMonths", "childGender", "langExposure", "consentPhotoReuse", "closePersonRelation",
   "cbCaregiverFirst", "cbFamOrder", "cbAsianFirst",
   "condition", "conditionPosition", "famOrder",
   "pairKey", "nativeSide", "nativeFace", "foreignFace", "nativePhrase", "foreignPhrase",
@@ -441,9 +441,9 @@ timeline.push({
   html: `
     <div style="text-align:left;max-width:620px;margin:auto;font-size:17px;">
       <label>Child's age in months:<br><input name="age_months" type="number" min="36" max="83" required></label><br><br>
-      <label>Child's sex:
-        <select name="child_sex" required>
-          <option value="">—</option><option>Female</option><option>Male</option><option>Other / prefer not to say</option>
+      <label>Child's gender:
+        <select name="child_gender" required>
+          <option value="">—</option><option>Girl</option><option>Boy</option><option>Nonbinary</option><option>Prefer not to say</option>
         </select></label><br><br>
       <label>Is your child regularly exposed to languages or accents other than American English (school, neighbors, family)?<br>
         <textarea name="lang_exposure" rows="2" style="width:100%;"></textarea></label><br><br>
@@ -457,7 +457,7 @@ timeline.push({
   on_finish: (d) => {
     jsPsych.data.addProperties({
       age_months: +d.response.age_months,
-      child_sex: d.response.child_sex,
+      child_gender: d.response.child_gender,
       lang_exposure: d.response.lang_exposure,
       consent_photo_reuse: !!d.response.consent_photo_reuse,
     });
@@ -733,7 +733,7 @@ function buildRows() {
     const adult = f("adult_check").last(1).values()[0] || {};
     return {
       participantId: pid, timestamp: ts,
-      ageMonths: props.age_months ?? "", childSex: props.child_sex ?? "",
+      ageMonths: props.age_months ?? "", childGender: props.child_gender ?? "",
       langExposure: props.lang_exposure ?? "", consentPhotoReuse: bin(props.consent_photo_reuse),
       closePersonRelation: props.close_person_relation ?? "",
       cbCaregiverFirst: bin(props.cb_caregiver_first), cbFamOrder: props.cb_fam_order ?? "",
