@@ -3,8 +3,3 @@ node_modules/
 *.log
 .env
 data/
-
-# CFD face images — kept OUT of the (public) repo until the Chicago Face
-# Database license is confirmed to allow public hosting. Remove this line
-# once that's resolved so the faces deploy with the study.
-img/faces/
