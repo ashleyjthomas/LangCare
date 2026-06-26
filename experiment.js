@@ -440,6 +440,23 @@ timeline.push({
   on_finish: (d) => { jsPsych.data.addProperties({ close_person_relation: d.response.relation }); },
 });
 
+// ---- 7b2. Sound check (async version of the original "Checking Audio" step) ----
+timeline.push({
+  type: jsPsychHtmlButtonResponse,
+  stimulus: `
+    <h2>Let's check your sound 🔊</h2>
+    <p style="font-size:18px;max-width:600px;margin:auto;">This game has talking in it, so sound is important.
+    Make sure your device is <b>not on silent</b>, then turn the volume up until you can clearly hear the voice.</p>
+    <div style="margin:20px;"><button id="lc-sound-test" class="jspsych-btn">🔊 Play the sound again</button></div>`,
+  choices: ["I can hear it clearly — let's go!"],
+  data: { name: "sound_check" },
+  on_load: () => {
+    playClip("audio/nar/soundcheck.mp3");                       // auto-play once
+    const b = document.querySelector("#lc-sound-test");
+    if (b) b.addEventListener("click", () => playClip("audio/nar/soundcheck.mp3"));
+  },
+});
+
 timeline.push({
   type: jsPsychHtmlButtonResponse,
   stimulus: `<h2>Great — all set!</h2><p style="font-size:20px;">Now let's meet some new people.</p>`,
