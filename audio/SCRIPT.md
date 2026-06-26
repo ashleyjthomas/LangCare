@@ -5,10 +5,12 @@ sentence**, one in an American accent, one in a different accent. Generate the t
 clips in ElevenLabs and drop them in this folder with the exact filenames below
 (they're referenced by `ACCENTS` in `experiment.js`).
 
-Both clips use this exact line (it's self-contained — it doesn't reference
-anything on screen):
+Both clips use this exact line. It's deliberately **neutral descriptive filler** —
+not social, not about the child, nothing a kid could call "right" or "wrong" — so
+only the ACCENT can drive the friend choice. (Edit `SPEAKER_LINE` in
+`experiment.js` to change it.)
 
-> "Hi there! It's so nice to meet you today. I love singing songs and playing games, and I really hope that we can be friends!"
+> "The weather is so nice today. It is warm and sunny, and there are big fluffy clouds up in the sky."
 
 | file | accent |
 |------|--------|

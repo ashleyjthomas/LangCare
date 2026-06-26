@@ -81,12 +81,14 @@ const FACE_PAIRS = [
 const faceImg = (id) => `img/faces/${id}.jpg`;
 
 // Both speakers say the SAME line; only the ACCENT differs. The line is
-// self-contained (it does NOT reference anything on screen) and long enough
-// to carry the accent clearly. `phrase` is the on-screen caption; `audio`
-// is the ElevenLabs clip.
+// deliberately NEUTRAL, descriptive filler — not social, not about the child,
+// and nothing a kid could call "right" or "wrong" — so only the ACCENT can
+// influence the friend choice. It's also self-contained (no reference to
+// anything on screen) and long enough to carry the accent. `phrase` is the
+// on-screen caption; `audio` is the ElevenLabs clip.
 const SPEAKER_LINE =
-  "Hi there! It's so nice to meet you today. I love singing songs and " +
-  "playing games, and I really hope that we can be friends!";
+  "The weather is so nice today. It is warm and sunny, and there are " +
+  "big fluffy clouds up in the sky.";
 const ACCENTS = {
   native:  { key: "native",  label: "American accent",
              phrase: SPEAKER_LINE, audio: "audio/native.mp3" },
@@ -374,7 +376,7 @@ function accentFamiliarization(t) {
   };
   return {
     type: jsPsychHtmlButtonResponse,
-    stimulus: () => buildScene(t.actors, adultPhotoOf(t), "Listen to each person say hello!"),
+    stimulus: () => buildScene(t.actors, adultPhotoOf(t), "Listen to each person talk!"),
     choices: ["Next"],
     button_html: '<button class="jspsych-btn" disabled>%choice%</button>',
     data: { name: "accent_fam", condition: t.condition },
