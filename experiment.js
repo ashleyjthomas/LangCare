@@ -46,7 +46,7 @@
 const CONFIG = {
   // Google Apps Script web-app URL (deploy scripts/apps_script.gs, paste /exec here).
   // Works from GitHub Pages — no server. Leave "" to download a JSON file instead.
-  SHEETS_WEBHOOK: "",
+  SHEETS_WEBHOOK: "",   // TODO: paste the Apps Script /exec URL once its deployment is confirmed working
   // Yoked stranger photo bank endpoint (see loadStrangerPhoto). Leave "" to use
   // the bundled placeholder (GitHub Pages can't run a bank server).
   STRANGER_BANK: "",
@@ -81,7 +81,7 @@ const FACE_PAIRS = [
   { key: "asian",  faces: ["AF-218", "AF-235"] },
   { key: "latina", faces: ["LF-203", "LF-229"] },
 ];
-const faceImg = (id) => `img/faces/${id}.jpg`;
+const faceImg = (id) => `img/faces/${id}.jpg?v=2`;  // bump ?v= when face images change (cache-bust)
 
 // FOUR neutral, descriptive phrases — not social, not about the child, nothing a
 // kid could call "right" or "wrong" — so only the ACCENT can drive the friend
