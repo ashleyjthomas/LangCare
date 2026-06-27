@@ -66,9 +66,11 @@ const CSV_COLS = [
   "condition", "conditionPosition", "famOrder",
   "pairKey", "nativeSide", "nativeFace", "foreignFace", "nativePhrase", "foreignPhrase",
   "nativeVoice", "foreignVoice",
-  "accentCheckCorrect", "accentCheckAttempts", "adultCheckCorrect",
-  "dvChosenFace", "dvChosenRole", "choseNative",   // <- primary DV
-  "dvWhy",
+  "prefAccentFace", "prefAccentChoseNative",    // preference after the accent portion
+  "prefAffilFace", "prefAffilChoseNative",      // preference after the affiliation portion
+  "prefFinalFace", "prefFinalChoseNative", "prefFinalWhy",  // condition-final preference + why
+  "attnAccentCorrect", "attnAffilCorrect",      // end-of-condition attention checks
+  "finalAll4Face", "finalAll4Role", "finalAll4Condition",  // final all-four preference (same on both rows)
 ];
 
 /* ===================================================================
@@ -307,6 +309,7 @@ const CLIP_GAINS = {
   "debrief.mp3":0.969,"soundcheck.mp3":1.271,
   "story_friend.mp3":1.257,"story_notfriend.mp3":1.094,
   "song_friend.mp3":1.000,"song_notfriend.mp3":1.362,
+  "attn_affil.mp3":1.323,"final_pref.mp3":1.193,
 };
 // Route an <audio> element through a GainNode so it plays at the normalized level.
 function applyGain(audioEl, src) {
@@ -600,79 +603,82 @@ function affiliationScreens(t) {
   return t.actors.flatMap((a) => [affiliationStory(t, a), affiliationSong(t, a)]);
 }
 
-// Accent manipulation check (plays the foreign clip; up to MAX_CHECK_REPEATS retries).
-function accentCheck(t) {
-  const target = foreignOf(t);
-  const cue = CONFIG.SHOW_ACCENT_LABEL
-    ? `Which person talked with <b>${ACCENTS.foreign.label}</b>?`
-    : `🔊 Which person talked like this?`;
-  return {
-    timeline: [{
-      type: jsPsychHtmlButtonResponse,
-      stimulus: `<div class="lc-prompt">${cue}</div>`,
-      choices: () => faceChoices(t),
-      button_html: FACE_BTN_HTML,
-      data: { name: "accent_check", condition: t.condition, correct_face: target.id },
-      on_load: async () => { await speak(narrateUrl("accent_check")); playClip(audioFor(target.voice, target.phrase)); },
-      on_finish: (d) => {
-        d.chosen_face = t.actors[d.response].id;
-        d.correct = d.chosen_face === target.id;
-      },
-    }],
-    loop_function: (data) => {
-      const last = data.values()[data.values().length - 1];
-      const attempts = jsPsych.data.get().filter({ name: "accent_check", condition: t.condition }).count();
-      return !last.correct && attempts < CONFIG.MAX_CHECK_REPEATS;
-    },
-  };
-}
-
-// Adult manipulation check: which one did the adult like? (foreign = correct)
-function adultCheck(t) {
-  const target = foreignOf(t);
-  const who = t.condition === "caregiver" ? "your grown-up" : "the grown-up";
-  return {
+// A preference (friend-choice) test. Shown after EACH portion, again at the end
+// of each condition (with "why"), and once across all four people at the very end.
+function prefScreen(t, phase, withWhy) {
+  const tl = [{
     type: jsPsychHtmlButtonResponse,
-    stimulus: `<div class="lc-prompt">Which person did <b>${who}</b> like?</div>`,
+    stimulus: `<div class="lc-prompt">Which person would <b>you</b> like to have as your friend?</div>`,
     choices: () => faceChoices(t),
     button_html: FACE_BTN_HTML,
-    data: { name: "adult_check", condition: t.condition, correct_face: target.id },
-    on_load: () => narrate(t.condition === "caregiver" ? "adult_check_caregiver" : "adult_check_stranger"),
+    data: { name: "preference", condition: t.condition, phase },
+    on_load: () => narrate("dv_friend"),
     on_finish: (d) => {
-      d.chosen_face = t.actors[d.response].id;
-      d.correct = d.chosen_face === target.id;
+      const c = t.actors[d.response];
+      d.chosen_face = c.id; d.chosen_role = c.role; d.chose_native = c.role === "native";
     },
+  }];
+  if (withWhy) tl.push({
+    type: jsPsychSurveyText,
+    questions: [{ prompt: "Why is that? (Grown-up, please type what your child says.)", rows: 2, columns: 50, name: "why" }],
+    data: { name: "pref_why", condition: t.condition, phase },
+    on_load: () => narrate("dv_why"),
+  });
+  return tl;
+}
+
+// End-of-condition attention checks: (1) accent — replays the foreign clip;
+// (2) affiliation — who the person in the middle sang with. Correct = the friend.
+function attnAccent(t) {
+  const target = foreignOf(t);
+  return {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<div class="lc-prompt">🔊 Which person talked like this?</div>`,
+    choices: () => faceChoices(t),
+    button_html: FACE_BTN_HTML,
+    data: { name: "attn_accent", condition: t.condition, correct_face: target.id },
+    on_load: async () => { await speak(narrateUrl("accent_check")); playClip(audioFor(target.voice, target.phrase)); },
+    on_finish: (d) => { d.chosen_face = t.actors[d.response].id; d.correct = d.chosen_face === target.id; },
+  };
+}
+function attnAffil(t) {
+  const target = foreignOf(t);
+  return {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<div class="lc-prompt">Which person did the person in the middle <b>sing with</b>?</div>`,
+    choices: () => faceChoices(t),
+    button_html: FACE_BTN_HTML,
+    data: { name: "attn_affil", condition: t.condition, correct_face: target.id },
+    on_load: () => narrate("attn_affil"),
+    on_finish: (d) => { d.chosen_face = t.actors[d.response].id; d.correct = d.chosen_face === target.id; },
   };
 }
 
-// DV block: friend choice (face buttons) -> why.
-function dvBlock(t) {
+// Final preference across ALL FOUR people (both pairs), once at the very end.
+function finalAll4() {
+  const all = jsPsych.randomization.shuffle(
+    TRIALS.flatMap((t) => t.actors.map((a) => ({ id: a.id, role: a.role, condition: t.condition }))));
   return [
     {
       type: jsPsychHtmlButtonResponse,
-      stimulus: `<div class="lc-prompt">Whom would <b>you</b> like to have as your friend?</div>`,
-      choices: () => faceChoices(t),
+      stimulus: `<div class="lc-prompt">Out of <b>everyone</b> you met, who would you most like to have as your friend?</div>`,
+      choices: all.map((a) => `<img class="lc-facebtn-img" src="${faceImg(a.id)}">`),
       button_html: FACE_BTN_HTML,
-      data: { name: "dv_friend", condition: t.condition },
-      on_load: () => narrate("dv_friend"),
-      on_finish: (d) => {
-        const chosen = t.actors[d.response];
-        d.chosen_face = chosen.id;
-        d.chosen_role = chosen.role;                  // 'native' | 'foreign'
-        d.chose_native = chosen.role === "native";    // primary 0/1 DV
-      },
+      data: { name: "final_pref" },
+      on_load: () => narrate("final_pref"),
+      on_finish: (d) => { const c = all[d.response]; d.chosen_face = c.id; d.chosen_role = c.role; d.chosen_condition = c.condition; },
     },
     {
       type: jsPsychSurveyText,
-      questions: [{ prompt: "Why is that? (Grown-up, please type what your child says.)",
-                    rows: 2, columns: 50, name: "why" }],
-      data: { name: "dv_why", condition: t.condition },
+      questions: [{ prompt: "Why is that? (Grown-up, please type what your child says.)", rows: 2, columns: 50, name: "why" }],
+      data: { name: "final_why" },
       on_load: () => narrate("dv_why"),
     },
   ];
 }
 
-// Assemble one full condition trial, honoring familiarization order.
+// Assemble one full condition: each portion is followed by a preference; then the
+// two attention checks; then a final preference (with "why") for the condition.
 function buildConditionTrial(t) {
   const intro = {
     type: jsPsychHtmlButtonResponse,
@@ -682,15 +688,24 @@ function buildConditionTrial(t) {
     data: { name: "trial_intro", condition: t.condition },
     on_load: () => narrate(t.condition === "caregiver" ? "intro_caregiver" : "intro_stranger"),
   };
-  const accentPair = [accentFamiliarization(t), accentCheck(t)];
-  const adultPair  = [...affiliationScreens(t), adultCheck(t)];
-  const ordered = t.famOrder === "accent"
-    ? [...accentPair, ...adultPair]
-    : [...adultPair, ...accentPair];
-  return [intro, ...ordered, ...dvBlock(t)];
+  const accentBlock = [accentFamiliarization(t)];
+  const affilBlock = affiliationScreens(t);
+  const accentFirst = t.famOrder === "accent";
+  const first  = accentFirst ? accentBlock : affilBlock;
+  const second = accentFirst ? affilBlock : accentBlock;
+  const firstLabel  = accentFirst ? "after_accent" : "after_affil";
+  const secondLabel = accentFirst ? "after_affil" : "after_accent";
+  return [
+    intro,
+    ...first,  ...prefScreen(t, firstLabel),
+    ...second, ...prefScreen(t, secondLabel),
+    attnAccent(t), attnAffil(t),
+    ...prefScreen(t, "final", true),
+  ];
 }
 
 for (const t of TRIALS) timeline.push(...buildConditionTrial(t));
+timeline.push(...finalAll4());   // 7th preference: all four people
 
 // ---- 7d. Debrief ----------------------------------------------------
 timeline.push({
@@ -724,13 +739,14 @@ function buildRows() {
   const pid = urlParam("pid") || PARTICIPANT.id;
   const ts = new Date().toISOString();
   const bin = (v) => (v === undefined || v === null ? "" : v ? 1 : 0);
+  const finalAll = all.filter({ name: "final_pref" }).last(1).values()[0] || {};  // participant-level
   return TRIALS.map((t, i) => {
     const f = (name) => all.filter({ name, condition: t.condition });
-    const friend = f("dv_friend").last(1).values()[0] || {};
-    const why = f("dv_why").last(1).values()[0]?.response?.why ?? "";
-    const accChecks = f("accent_check").values();
-    const lastAcc = accChecks[accChecks.length - 1] || {};
-    const adult = f("adult_check").last(1).values()[0] || {};
+    const prefBy = (ph) => f("preference").values().find((v) => v.phase === ph) || {};
+    const pAcc = prefBy("after_accent"), pAff = prefBy("after_affil"), pFin = prefBy("final");
+    const finWhy = f("pref_why").values().find((v) => v.phase === "final")?.response?.why ?? "";
+    const aAcc = f("attn_accent").last(1).values()[0] || {};
+    const aAff = f("attn_affil").last(1).values()[0] || {};
     return {
       participantId: pid, timestamp: ts,
       ageMonths: props.age_months ?? "", childGender: props.child_gender ?? "",
@@ -743,11 +759,12 @@ function buildRows() {
       nativeFace: nativeOf(t).id, foreignFace: foreignOf(t).id,
       nativePhrase: PHRASES[nativeOf(t).phrase].id, foreignPhrase: PHRASES[foreignOf(t).phrase].id,
       nativeVoice: nativeOf(t).voice, foreignVoice: foreignOf(t).voice,
-      accentCheckCorrect: bin(lastAcc.correct), accentCheckAttempts: accChecks.length,
-      adultCheckCorrect: bin(adult.correct),
-      dvChosenFace: friend.chosen_face ?? "", dvChosenRole: friend.chosen_role ?? "",
-      choseNative: bin(friend.chose_native),
-      dvWhy: why,
+      prefAccentFace: pAcc.chosen_face ?? "", prefAccentChoseNative: bin(pAcc.chose_native),
+      prefAffilFace: pAff.chosen_face ?? "", prefAffilChoseNative: bin(pAff.chose_native),
+      prefFinalFace: pFin.chosen_face ?? "", prefFinalChoseNative: bin(pFin.chose_native), prefFinalWhy: finWhy,
+      attnAccentCorrect: bin(aAcc.correct), attnAffilCorrect: bin(aAff.correct),
+      finalAll4Face: finalAll.chosen_face ?? "", finalAll4Role: finalAll.chosen_role ?? "",
+      finalAll4Condition: finalAll.chosen_condition ?? "",
     };
   });
 }
