@@ -238,13 +238,15 @@ function buildScene(actors, adultPhoto, promptHTML) {
 }
 // Focused view: the grown-up + ONE speaker face (used for the affiliation story
 // and song, shown one person at a time so it's clearer for kids).
-function buildDuo(actor, adultPhoto, promptHTML) {
+function buildDuo(actor, adultPhoto, promptHTML, onLeft) {
+  const adult = buildAdult(adultPhoto, "lc-adult-node");
+  const face = buildActor(actor, "lc-solo");
+  const spacer = `<div class="lc-actor" style="visibility:hidden"></div>`;  // keeps the adult centered
+  // Keep the character on the SAME side of the adult as in familiarization.
+  const row = onLeft ? face + adult + spacer : spacer + adult + face;
   return `
     ${promptHTML ? `<div class="lc-prompt">${promptHTML}</div>` : ""}
-    <div class="lc-scene">
-      ${buildAdult(adultPhoto, "lc-adult-node")}
-      ${buildActor(actor, "lc-solo")}
-    </div>
+    <div class="lc-scene">${row}</div>
     <div class="lc-speech" id="lc-speech"></div>`;
 }
 
@@ -310,6 +312,7 @@ const CLIP_GAINS = {
   "story_friend.mp3":1.257,"story_notfriend.mp3":1.094,
   "song_friend.mp3":1.000,"song_notfriend.mp3":1.362,
   "attn_affil.mp3":1.323,"final_pref.mp3":1.193,
+  "check_la1.mp3":0.507,"check_la2.mp3":3.820,"check_as1.mp3":0.456,
 };
 // Route an <audio> element through a GainNode so it plays at the normalized level.
 function applyGain(audioEl, src) {
@@ -565,7 +568,7 @@ function affiliationStory(t, actor) {
     : `<b>${who}</b> and this person don't really know each other.`;
   return {
     type: jsPsychHtmlButtonResponse,
-    stimulus: () => buildDuo(actor, adultPhotoOf(t), text),
+    stimulus: () => buildDuo(actor, adultPhotoOf(t), text, actor === t.actors[0]),
     choices: ["Next"],
     data: { name: "affil_story", condition: t.condition, role: actor.role, face: actor.id },
     on_load: () => narrate(friend ? "story_friend" : "story_notfriend"),
@@ -575,7 +578,7 @@ function affiliationSong(t, actor) {
   const friend = actor.role === "foreign";
   return {
     type: jsPsychHtmlButtonResponse,
-    stimulus: () => buildDuo(actor, adultPhotoOf(t), "Watch what happens!"),
+    stimulus: () => buildDuo(actor, adultPhotoOf(t), "Watch what happens!", actor === t.actors[0]),
     choices: ["Next"],
     button_html: '<button class="jspsych-btn" disabled>%choice%</button>',
     data: { name: "affil_song", condition: t.condition, role: actor.role, face: actor.id },
@@ -637,7 +640,8 @@ function attnAccent(t) {
     choices: () => faceChoices(t),
     button_html: FACE_BTN_HTML,
     data: { name: "attn_accent", condition: t.condition, correct_face: target.id },
-    on_load: async () => { await speak(narrateUrl("accent_check")); playClip(audioFor(target.voice, target.phrase)); },
+    // replay just ONE short sentence in the foreign speaker's voice (not the full phrase)
+    on_load: async () => { await speak(narrateUrl("accent_check")); playClip(`audio/check_${target.voice}.mp3`); },
     on_finish: (d) => { d.chosen_face = t.actors[d.response].id; d.correct = d.chosen_face === target.id; },
   };
 }
