@@ -61,7 +61,8 @@ const CONFIG = {
 // (choseNative ~ condition + (1|participant)). Shared by the Sheet + JSON export.
 const CSV_COLS = [
   "participantId", "timestamp",
-  "ageMonths", "childGender", "langExposure", "consentPhotoReuse", "closePersonRelation",
+  "ageMonths", "childGender", "langExposure", "consentPhotoReuse",
+  "closePersonName", "closePersonRelation", "closePersonGender", "closePersonEthnicity",
   "cbCaregiverFirst", "cbFamOrder", "cbAsianFirst",
   "condition", "conditionPosition", "famOrder",
   "pairKey", "nativeSide", "nativeFace", "foreignFace", "nativePhrase", "foreignPhrase",
@@ -309,9 +310,9 @@ const CLIP_GAINS = {
   "fam.mp3":1.520,"accent_check.mp3":1.303,"adult_check_caregiver.mp3":0.911,
   "adult_check_stranger.mp3":1.163,"dv_friend.mp3":1.429,"dv_why.mp3":1.672,
   "debrief.mp3":0.969,"soundcheck.mp3":1.271,
-  "story_friend.mp3":1.257,"story_notfriend.mp3":1.094,
-  "song_friend.mp3":1.000,"song_notfriend.mp3":1.362,
-  "attn_affil.mp3":1.323,"final_pref.mp3":1.193,
+  "story_friend.mp3":1.131,"story_notfriend.mp3":1.094,
+  "song_friend.mp3":1.194,"song_notfriend.mp3":1.179,
+  "attn_affil.mp3":1.418,"final_pref.mp3":1.193,
   "check_la1.mp3":0.507,"check_la2.mp3":3.820,"check_as1.mp3":0.456,
 };
 // Route an <audio> element through a GainNode so it plays at the normalized level.
@@ -406,25 +407,50 @@ const nativeOf  = (t) => t.actors.find((a) => a.role === "native");
 const foreignOf = (t) => t.actors.find((a) => a.role === "foreign");
 const adultPhotoOf = (t) => (t.condition === "caregiver" ? PARTICIPANT.caregiverPhoto : PARTICIPANT.strangerPhoto);
 
+// How to refer to the adult in the middle. Caregiver = what the child calls them
+// (typed in); stranger = "someone else's <relation>".
+const relationNoun = (r) => ({
+  mother: "mom", father: "dad", grandmother: "grandma", grandfather: "grandpa",
+  nanny: "nanny", "family friend": "family friend", aunt: "aunt", uncle: "uncle", other: "grown-up",
+}[r] || "grown-up");
+function middleLabel(t) {
+  return t.condition === "caregiver"
+    ? (PARTICIPANT.closeName || "your grown-up")
+    : "someone else's " + relationNoun(PARTICIPANT.relation);
+}
+
 /* ===================================================================
-   6. STRANGER BANK (yoked, consented photos)  (unchanged)
+   6. STRANGER BANK (yoked, consented photos)
+   The bank should return a photo that MATCHES the child's close person on
+   gender, ethnicity, and relation when possible (the server filters on these,
+   falling back to any available photo).
    =================================================================== */
 async function loadStrangerPhoto() {
   if (CONFIG.STRANGER_BANK) {
     try {
-      const r = await fetch(`${CONFIG.STRANGER_BANK}?exclude=${PARTICIPANT.id}`);
+      const q = new URLSearchParams({
+        exclude: PARTICIPANT.id,
+        gender: PARTICIPANT.personGender || "",
+        ethnicity: PARTICIPANT.personEthnicity || "",
+        relation: PARTICIPANT.relation || "",
+      });
+      const r = await fetch(`${CONFIG.STRANGER_BANK}?${q}`);
       const j = await r.json();
-      if (j && j.photo) { PARTICIPANT.strangerPhoto = j.photo; return; }
+      if (j && j.photo) { PARTICIPANT.strangerPhoto = j.photo; PARTICIPANT.strangerMatch = j.matchedOn || ""; return; }
     } catch (e) { /* fall through */ }
   }
-  PARTICIPANT.strangerPhoto = "img/stranger.svg";
+  PARTICIPANT.strangerPhoto = "img/stranger.svg";   // placeholder when no bank is configured
 }
 async function contributePhotoToBank(consented) {
   if (!consented || !CONFIG.STRANGER_BANK || !PARTICIPANT.caregiverPhoto) return;
   try {
     await fetch(CONFIG.STRANGER_BANK, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pid: PARTICIPANT.id, photo: PARTICIPANT.caregiverPhoto }),
+      body: JSON.stringify({
+        pid: PARTICIPANT.id, photo: PARTICIPANT.caregiverPhoto,
+        gender: PARTICIPANT.personGender || "", ethnicity: PARTICIPANT.personEthnicity || "",
+        relation: PARTICIPANT.relation || "",
+      }),
     });
   } catch (e) { /* non-fatal */ }
 }
@@ -481,15 +507,47 @@ timeline.push({
   data: { name: "photo_capture" },   // parent-facing — NOT narrated
 });
 
-// who the photo is to the child (write-in)
+// About the person in the photo — what the child calls them, their relation,
+// gender, and race/ethnicity (used to introduce them and to match the stranger).
 timeline.push({
-  type: jsPsychSurveyText,
-  preamble: `<p style="font-size:18px;">Last setup question!</p>`,
-  questions: [{ prompt: "What is this person to your child? (for example: grandma, daddy, auntie, big brother)",
-                name: "relation", required: true }],
+  type: jsPsychSurveyHtmlForm,
+  preamble: `<p style="font-size:18px;">A few quick questions about the person in the photo.</p>`,
+  html: `
+    <div style="text-align:left;max-width:620px;margin:auto;font-size:17px;">
+      <label>What does your child call this person? (e.g. Grandma, Papa, Auntie Jen)<br>
+        <input name="close_name" type="text" required style="width:100%;"></label><br><br>
+      <label>How is this person related to your child?<br>
+        <select name="relation" required>
+          <option value="">—</option>
+          <option value="mother">Mother</option><option value="father">Father</option>
+          <option value="grandmother">Grandmother</option><option value="grandfather">Grandfather</option>
+          <option value="nanny">Nanny</option><option value="family friend">Family friend</option>
+          <option value="aunt">Aunt</option><option value="uncle">Uncle</option><option value="other">Other</option>
+        </select></label><br><br>
+      <label>This person's gender:<br>
+        <select name="person_gender" required>
+          <option value="">—</option><option>Woman</option><option>Man</option><option>Nonbinary</option><option>Prefer not to say</option>
+        </select></label><br><br>
+      <label>This person's race / ethnicity:<br>
+        <select name="person_ethnicity" required>
+          <option value="">—</option><option>Asian</option><option>Black</option><option>Hispanic/Latino</option>
+          <option>White</option><option>Middle Eastern</option><option>Multiracial</option><option>Other</option>
+        </select></label>
+    </div>`,
   button_label: "Continue",
-  data: { name: "relation" },
-  on_finish: (d) => { jsPsych.data.addProperties({ close_person_relation: d.response.relation }); },
+  data: { name: "close_person_info" },
+  on_finish: (d) => {
+    PARTICIPANT.closeName = d.response.close_name;
+    PARTICIPANT.relation = d.response.relation;
+    PARTICIPANT.personGender = d.response.person_gender;
+    PARTICIPANT.personEthnicity = d.response.person_ethnicity;
+    jsPsych.data.addProperties({
+      close_person_name: d.response.close_name,
+      close_person_relation: d.response.relation,
+      close_person_gender: d.response.person_gender,
+      close_person_ethnicity: d.response.person_ethnicity,
+    });
+  },
 });
 
 // ---- 7b2. Sound check (async version of the original "Checking Audio" step) ----
@@ -562,13 +620,17 @@ function accentFamiliarization(t) {
 // friend — they know a DIFFERENT song and the grown-up does not sing along.
 function affiliationStory(t, actor) {
   const friend = actor.role === "foreign";
-  const who = t.condition === "caregiver" ? "your grown-up" : "this grown-up";
-  const text = friend
-    ? `<b>${who}</b> and this person are super close best friends! They know the very same song.`
-    : `<b>${who}</b> and this person don't really know each other.`;
+  // compute the text at RUNTIME so it uses the name/relation entered in the form
+  const textOf = () => {
+    const w = middleLabel(t);
+    const who = w.charAt(0).toUpperCase() + w.slice(1);   // sentence start
+    return friend
+      ? `<b>${who}</b> and this person are super close best friends! They love to dance together.`
+      : `<b>${who}</b> and this person don't really know each other.`;
+  };
   return {
     type: jsPsychHtmlButtonResponse,
-    stimulus: () => buildDuo(actor, adultPhotoOf(t), text, actor === t.actors[0]),
+    stimulus: () => buildDuo(actor, adultPhotoOf(t), textOf(), actor === t.actors[0]),
     choices: ["Next"],
     data: { name: "affil_story", condition: t.condition, role: actor.role, face: actor.id },
     on_load: () => narrate(friend ? "story_friend" : "story_notfriend"),
@@ -586,12 +648,12 @@ function affiliationSong(t, actor) {
       const btn = document.querySelector(".jspsych-btn");
       await speak(narrateUrl(friend ? "song_friend" : "song_notfriend"));
       if (friend) {
-        setSpeech("🎵 They love singing together! 🎵");
+        setSpeech("🎵 They love dancing together! 🎵");
         anim("lc-solo", "lc-singing"); anim("lc-adult-node", "lc-singing"); // both dance
         await wait(playMelody(TWINKLE));
         stop("lc-solo", "lc-singing"); stop("lc-adult-node", "lc-singing");
       } else {
-        setSpeech("They don't sing together.");
+        setSpeech("They don't dance together.");
         anim("lc-solo", "lc-singing");                       // only the person sings; grown-up still
         await wait(playMelody(MARY));
         stop("lc-solo", "lc-singing");
@@ -649,7 +711,7 @@ function attnAffil(t) {
   const target = foreignOf(t);
   return {
     type: jsPsychHtmlButtonResponse,
-    stimulus: `<div class="lc-prompt">Which person did the person in the middle <b>sing with</b>?</div>`,
+    stimulus: () => `<div class="lc-prompt">Who did <b>${middleLabel(t)}</b> dance with?</div>`,
     choices: () => faceChoices(t),
     button_html: FACE_BTN_HTML,
     data: { name: "attn_affil", condition: t.condition, correct_face: target.id },
@@ -755,7 +817,8 @@ function buildRows() {
       participantId: pid, timestamp: ts,
       ageMonths: props.age_months ?? "", childGender: props.child_gender ?? "",
       langExposure: props.lang_exposure ?? "", consentPhotoReuse: bin(props.consent_photo_reuse),
-      closePersonRelation: props.close_person_relation ?? "",
+      closePersonName: props.close_person_name ?? "", closePersonRelation: props.close_person_relation ?? "",
+      closePersonGender: props.close_person_gender ?? "", closePersonEthnicity: props.close_person_ethnicity ?? "",
       cbCaregiverFirst: bin(props.cb_caregiver_first), cbFamOrder: props.cb_fam_order ?? "",
       cbAsianFirst: bin(props.cb_asian_first),
       condition: t.condition, conditionPosition: i + 1, famOrder: t.famOrder,

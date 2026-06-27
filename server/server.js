@@ -47,17 +47,35 @@ http.createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname === "/bank") {
     const exclude = url.searchParams.get("exclude");
-    const bank = readBank().filter((e) => e.pid !== exclude);
-    const pick = bank.length ? bank[Math.floor(Math.random() * bank.length)] : null;
+    const want = {
+      gender: url.searchParams.get("gender") || "",
+      ethnicity: url.searchParams.get("ethnicity") || "",
+      relation: url.searchParams.get("relation") || "",
+    };
+    let pool = readBank().filter((e) => e.pid !== exclude);
+    // Prefer photos matching on gender+ethnicity+relation; relax to gender+ethnicity,
+    // then gender, then anything — so it matches "when possible".
+    const tryFilters = [
+      (e) => e.gender === want.gender && e.ethnicity === want.ethnicity && e.relation === want.relation,
+      (e) => e.gender === want.gender && e.ethnicity === want.ethnicity,
+      (e) => e.gender === want.gender,
+      () => true,
+    ];
+    let chosen = null, matchedOn = "none";
+    const labels = ["gender+ethnicity+relation", "gender+ethnicity", "gender", "any"];
+    for (let i = 0; i < tryFilters.length; i++) {
+      const m = pool.filter(tryFilters[i]);
+      if (m.length) { chosen = m[Math.floor(Math.random() * m.length)]; matchedOn = labels[i]; break; }
+    }
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ photo: pick ? pick.photo : null }));
+    return res.end(JSON.stringify({ photo: chosen ? chosen.photo : null, matchedOn }));
   }
 
   if (req.method === "POST" && url.pathname === "/bank") {
     const raw = await body(req);
     try {
-      const { pid, photo } = JSON.parse(raw);
-      if (pid && photo) { const b = readBank(); b.push({ pid, photo }); writeBank(b); }
+      const { pid, photo, gender, ethnicity, relation } = JSON.parse(raw);
+      if (pid && photo) { const b = readBank(); b.push({ pid, photo, gender: gender || "", ethnicity: ethnicity || "", relation: relation || "" }); writeBank(b); }
     } catch {}
     res.writeHead(200, { "Content-Type": "application/json" });
     return res.end(JSON.stringify({ ok: true }));
